@@ -32,6 +32,7 @@ jobs:
           python scripts/fix-test-files.py
           python scripts/prepare-release.py
           bunx --no-install prettier --write eslint.config.js scripts/validate-browser.mjs src/components/portal/*.tsx src/lib/admin.functions.ts src/lib/approval.ts src/lib/auth.tsx src/lib/demo.ts src/lib/media.ts src/lib/owner.functions.ts src/lib/owner.server.ts src/lib/portal.ts src/routes/__root.tsx src/routes/index.tsx src/test/owner-access.test.ts src/test/portal-utils.test.ts src/test/admin-flows.test.ts src/test/admin-ui.test.tsx
+          bunx --no-install eslint src/components/portal/Portal.tsx --fix
           git diff --check
           git diff --stat | tee qa-reports/diff-stat.txt
           git diff > qa-reports/release.patch
