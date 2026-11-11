@@ -1,0 +1,42 @@
+name: Verify A ORDEM
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Install locked dependencies
+        id: install
+        run: bun install --frozen-lockfile
+      - name: TypeScript
+        if: always() && steps.install.outcome == 'success'
+        run: bunx --no-install tsc --noEmit
+      - name: Unit tests
+        if: always() && steps.install.outcome == 'success'
+        run: bun run test
+      - name: Production build
+        if: always() && steps.install.outcome == 'success'
+        run: bun run build
+      - name: Lint
+        if: always() && steps.install.outcome == 'success'
+        run: bun run lint
