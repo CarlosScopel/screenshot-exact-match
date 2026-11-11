@@ -1,0 +1,67 @@
+name: Verify published A ORDEM
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/published-smoke.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  published:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      QA_BASE_URL: https://pixel-perfect-replay-54723.lovable.app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Isolated browser validation tooling
+        run: |
+          npm install --prefix "$RUNNER_TEMP/portal-browser" --no-save --package-lock=false playwright
+          node "$RUNNER_TEMP/portal-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Exercise public demo without modifying production content
+        run: |
+          PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/portal-browser/node_modules/playwright/index.mjs" node --env-file=.env scripts/validate-browser.mjs
+      - name: Request owner verification email once; never create an authenticated session
+        if: github.event_name == 'push' && github.run_number == 1 && github.run_attempt == 1
+        run: |
+          PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/portal-browser/node_modules/playwright/index.mjs" node --input-type=module <<'JS'
+          import { pathToFileURL } from 'node:url';
+          import { writeFile, mkdir } from 'node:fs/promises';
+          const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE_PATH).href);
+          await mkdir('qa-reports',{ recursive: true });
+          const browser = await chromium.launch({headless:true});
+          const report = {target:process.env.QA_BASE_URL, submitted:false, accepted:false, mailbox_delivery:'not_verified', administrator_role:'not_changed_by_test'};
+          try {
+            const page = await browser.newPage();
+            page.setDefaultTimeout(30000);
+            await page.goto(process.env.QA_BASE_URL,{waitUntil:'domcontentloaded'});
+            await page.getByRole('button',{name:'Ativar acesso de administrador',exact:true}).click();
+            await page.getByLabel('Seu nome',{exact:true}).fill('Carlos Scopel');
+            await page.getByLabel('E-mail',{exact:true}).fill('dudu.escopelcarlos253@gmail.com');
+            await page.getByRole('button',{name:'Enviar link de administrador',exact:true}).click();
+            report.submitted = true;
+            const status = page.getByRole('status');
+            await status.waitFor();
+            report.feedback = await status.innerText();
+            report.accepted = report.feedback.includes('Link enviado ao e-mail autorizado');
+            if (!report.accepted) throw new Error(report.feedback);
+          } catch (error) {
+            report.error = String(error);
+            process.exitCode = 1;
+          } finally {
+            await writeFile('qa-reports/owner-email-request.json',JSON.stringify(report,null,2));
+            await browser.close();
+          }
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: published-portal-evidence
+          path: qa-reports/
+          retention-days: 7
