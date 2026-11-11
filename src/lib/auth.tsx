@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
@@ -24,7 +32,8 @@ const Ctx = createContext<AuthCtx | null>(null);
 
 function hexToApply(hex?: string | null) {
   if (typeof document === "undefined") return;
-  if (hex && /^#[0-9a-f]{6}$/i.test(hex)) document.documentElement.style.setProperty("--primary", hex);
+  if (hex && /^#[0-9a-f]{6}$/i.test(hex))
+    document.documentElement.style.setProperty("--primary", hex);
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -62,7 +71,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (version !== loadVersion.current) return;
       setProfile(null);
       setRoles([]);
-      setAccessError(error instanceof Error ? error.message : "Não foi possível verificar o acesso.");
+      setAccessError(
+        error instanceof Error ? error.message : "Não foi possível verificar o acesso.",
+      );
     } finally {
       if (version === loadVersion.current) setLoading(false);
     }
@@ -75,25 +86,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const linkType = new URLSearchParams(window.location.hash.slice(1)).get("type") || new URLSearchParams(window.location.search).get("type");
+    const linkType =
+      new URLSearchParams(window.location.hash.slice(1)).get("type") ||
+      new URLSearchParams(window.location.search).get("type");
     if (linkType === "invite" || linkType === "recovery") setRequiresPasswordSetup(true);
     refreshSettings();
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
       setSession(s);
       if (event === "PASSWORD_RECOVERY") setRequiresPasswordSetup(true);
       if (event === "SIGNED_OUT") setRequiresPasswordSetup(false);
-      if (event === "SIGNED_IN" || event === "USER_UPDATED" || event === "SIGNED_OUT" || event === "PASSWORD_RECOVERY") {
+      if (
+        event === "SIGNED_IN" ||
+        event === "USER_UPDATED" ||
+        event === "SIGNED_OUT" ||
+        event === "PASSWORD_RECOVERY"
+      ) {
         setTimeout(() => loadUser(s), 0);
       }
     });
-    supabase.auth.getSession().then(async ({ data }) => {
-      setSession(data.session);
-      await loadUser(data.session);
-      if (data.session) supabase.rpc("touch_last_seen");
-    }).catch(() => {
-      setAccessError("Não foi possível recuperar a sessão. Tente entrar novamente.");
-      setLoading(false);
-    });
+    supabase.auth
+      .getSession()
+      .then(async ({ data }) => {
+        setSession(data.session);
+        await loadUser(data.session);
+        if (data.session) supabase.rpc("touch_last_seen");
+      })
+      .catch(() => {
+        setAccessError("Não foi possível recuperar a sessão. Tente entrar novamente.");
+        setLoading(false);
+      });
     return () => sub.subscription.unsubscribe();
   }, [loadUser, refreshSettings]);
 
@@ -122,15 +143,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         <div className="min-h-screen flex items-center justify-center p-6">
           <div className="surface p-6 max-w-md text-center">
             <h1 className="text-xl font-semibold">Verificação de acesso</h1>
-            <p role="alert" className="text-sm text-muted-foreground mt-3">{accessError}</p>
-            <button className="portal-outline mt-5" onClick={async () => {
-              const { error } = await supabase.auth.signOut();
-              if (error) setAccessError("Não foi possível sair. Tente novamente.");
-              else { setAccessError(""); setSession(null); setProfile(null); setRoles([]); }
-            }}>Voltar ao login</button>
+            <p role="alert" className="text-sm text-muted-foreground mt-3">
+              {accessError}
+            </p>
+            <button
+              className="portal-outline mt-5"
+              onClick={async () => {
+                const { error } = await supabase.auth.signOut();
+                if (error) setAccessError("Não foi possível sair. Tente novamente.");
+                else {
+                  setAccessError("");
+                  setSession(null);
+                  setProfile(null);
+                  setRoles([]);
+                }
+              }}
+            >
+              Voltar ao login
+            </button>
           </div>
         </div>
-      ) : children}
+      ) : (
+        children
+      )}
     </Ctx.Provider>
   );
 }

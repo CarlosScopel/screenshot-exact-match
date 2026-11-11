@@ -17,7 +17,9 @@ export async function resolveMedia(value?: string | null): Promise<string | null
 }
 
 export function useMedia(value?: string | null) {
-  const [url, setUrl] = useState<string | null>(value && !value.startsWith("media:") ? value : null);
+  const [url, setUrl] = useState<string | null>(
+    value && !value.startsWith("media:") ? value : null,
+  );
   useEffect(() => {
     let alive = true;
     resolveMedia(value).then((u) => alive && setUrl(u));
@@ -29,7 +31,10 @@ export function useMedia(value?: string | null) {
 }
 
 function safeName(name: string) {
-  return name.normalize("NFD").replace(/[^\w.-]+/g, "-").toLowerCase();
+  return name
+    .normalize("NFD")
+    .replace(/[^\w.-]+/g, "-")
+    .toLowerCase();
 }
 
 export async function uploadMedia(file: File, folder: string) {
@@ -48,7 +53,9 @@ export async function uploadMaterial(file: File, scope: "lesson" | "library", id
 }
 
 export async function openMaterial(path: string) {
-  const { data, error } = await supabase.storage.from("materials").createSignedUrl(path, 120, { download: true });
+  const { data, error } = await supabase.storage
+    .from("materials")
+    .createSignedUrl(path, 120, { download: true });
   if (error || !data) throw error ?? new Error("Arquivo indisponível");
   window.open(data.signedUrl, "_blank", "noopener");
 }

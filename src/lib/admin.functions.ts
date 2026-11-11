@@ -1,11 +1,16 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/integrations/supabase/types";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { APPLICATION_PENDING, PENDING_APPROVAL, REJECTED_APPROVAL } from "@/lib/approval";
 
-async function assertAdmin(ctx: { supabase: any; userId: string }) {
-  const { data } = await ctx.supabase.rpc("has_role", { _user_id: ctx.userId, _role: "admin" });
-  if (!data) throw new Error("Acesso negado");
+async function assertAdmin(ctx: { supabase: SupabaseClient<Database>; userId: string }) {
+  const { data, error } = await ctx.supabase.rpc("has_role", {
+    _user_id: ctx.userId,
+    _role: "admin",
+  });
+  if (error || !data) throw new Error("Acesso negado");
 }
 
 /** Public: whether the platform already has an administrator (drives the first-run setup screen). */
@@ -26,10 +31,12 @@ export const getSetupState = createServerFn({ method: "GET" }).handler(async () 
  */
 export const requestMenteeAccess = createServerFn({ method: "POST" })
   .inputValidator((i: unknown) =>
-    z.object({
-      name: z.string().trim().min(2).max(100),
-      email: z.string().trim().email().max(255),
-    }).parse(i),
+    z
+      .object({
+        name: z.string().trim().min(2).max(100),
+        email: z.string().trim().email().max(255),
+      })
+      .parse(i),
   )
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -45,7 +52,8 @@ export const requestMenteeAccess = createServerFn({ method: "POST" })
       }
       throw new Error("Não foi possível registrar sua solicitação. Tente novamente.");
     }
-    const { data: pendingProfile, error: pendingError } = await supabaseAdmin.from("profiles")
+    const { data: pendingProfile, error: pendingError } = await supabaseAdmin
+      .from("profiles")
       .update({
         status: "suspended",
         admin_notes: APPLICATION_PENDING,
@@ -99,14 +107,26 @@ export const inviteMentee = createServerFn({ method: "POST" })
       await supabaseAdmin.auth.admin.deleteUser(uid);
       throw new Error("Não foi possível bloquear o acesso até a aprovação. Convite cancelado.");
     }
-    if (data.cohortIds.length)
-      await supabaseAdmin
-        .from("cohort_members")
-        .upsert(data.cohortIds.map((c) => ({ cohort_id: c, user_id: uid })));
-    if (data.trainingIds.length)
-      await supabaseAdmin
-        .from("training_grants")
-        .upsert(data.trainingIds.map((t) => ({ training_id: t, user_id: uid })));
+    if (data.cohortIds.length) {
+      const { error: cohortError } = await supabaseAdmin.from("cohort_members").upsert(
+        data.cohortIds.map((c) => ({ cohort_id: c, user_id: uid })),
+        { onConflict: "cohort_id,user_id" },
+      );
+      if (cohortError)
+        throw new Error(
+          "Convite criado, mas não foi possível vincular as turmas. O acesso continua pendente.",
+        );
+    }
+    if (data.trainingIds.length) {
+      const { error: grantError } = await supabaseAdmin.from("training_grants").upsert(
+        data.trainingIds.map((t) => ({ training_id: t, user_id: uid })),
+        { onConflict: "training_id,user_id" },
+      );
+      if (grantError)
+        throw new Error(
+          "Convite criado, mas não foi possível vincular os treinamentos. O acesso continua pendente.",
+        );
+    }
     return { userId: uid };
   });
 
@@ -114,22 +134,26 @@ export const inviteMentee = createServerFn({ method: "POST" })
 export const reviewMentee = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((i: unknown) =>
-    z.object({
-      userId: z.string().uuid(),
-      decision: z.enum(["approve", "reject"]),
-    }).parse(i),
+    z
+      .object({
+        userId: z.string().uuid(),
+        decision: z.enum(["approve", "reject"]),
+      })
+      .parse(i),
   )
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
     if (data.userId === context.userId) throw new Error("Você não pode revisar sua própria conta.");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: application } = await supabaseAdmin.from("profiles")
+    const { data: application } = await supabaseAdmin
+      .from("profiles")
       .select("admin_notes,email")
       .eq("id", data.userId)
       .eq("status", "suspended")
       .in("admin_notes", [PENDING_APPROVAL, APPLICATION_PENDING])
       .maybeSingle();
-    if (!application) throw new Error("Solicitação não encontrada ou já analisada.");
+    if (!application || !application.admin_notes)
+      throw new Error("Solicitação não encontrada ou já analisada.");
     const { data: reviewed, error } = await supabaseAdmin
       .from("profiles")
       .update({
@@ -147,8 +171,11 @@ export const reviewMentee = createServerFn({ method: "POST" })
       const { error: confirmError } = await supabaseAdmin.auth.admin.updateUserById(data.userId, {
         email_confirm: true,
       });
-      if (confirmError) throw new Error("Acesso aprovado, mas não foi possível liberar a confirmação do e-mail.");
-      const { error: emailError } = await supabaseAdmin.auth.resetPasswordForEmail(application.email);
+      if (confirmError)
+        throw new Error("Acesso aprovado, mas não foi possível liberar a confirmação do e-mail.");
+      const { error: emailError } = await supabaseAdmin.auth.resetPasswordForEmail(
+        application.email,
+      );
       return { ok: true, needsPasswordEmail: !!emailError };
     }
     return { ok: true, needsPasswordEmail: false };
@@ -194,10 +221,16 @@ export const setUserRole = createServerFn({ method: "POST" })
     if (data.userId === context.userId && data.role === "admin" && !data.enabled)
       throw new Error("Você não pode remover seu próprio acesso de administrador.");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    if (data.enabled)
-      await supabaseAdmin.from("user_roles").upsert({ user_id: data.userId, role: data.role });
-    else
-      await supabaseAdmin.from("user_roles").delete().eq("user_id", data.userId).eq("role", data.role);
+    const { error } = data.enabled
+      ? await supabaseAdmin
+          .from("user_roles")
+          .upsert({ user_id: data.userId, role: data.role }, { onConflict: "user_id,role" })
+      : await supabaseAdmin
+          .from("user_roles")
+          .delete()
+          .eq("user_id", data.userId)
+          .eq("role", data.role);
+    if (error) throw new Error("Não foi possível atualizar a permissão do usuário.");
     return { ok: true };
   });
 

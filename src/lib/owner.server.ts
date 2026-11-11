@@ -26,15 +26,27 @@ export function canActivateOwner(
   claims: VerifiedClaims,
   now = Date.now(),
 ): boolean {
-  if (!isOwnerEmail(user.email) || !user.email_confirmed_at || claims.sub !== user.id ||
-      !isOwnerEmail(claims.email)) return false;
+  if (
+    !isOwnerEmail(user.email) ||
+    !user.email_confirmed_at ||
+    claims.sub !== user.id ||
+    !isOwnerEmail(claims.email)
+  )
+    return false;
   if (user.app_metadata?.[VERIFIED_OWNER_KEY] === OWNER_EMAIL) return true;
   if (!Array.isArray(claims.amr)) return false;
   return claims.amr.some((entry: unknown) => {
     if (!entry || typeof entry !== "object") return false;
     const { method, timestamp } = entry as { method?: unknown; timestamp?: unknown };
-    if (typeof method !== "string" || typeof timestamp !== "number" || !Number.isFinite(timestamp)) return false;
-    const emailMethod = ["invite", "recovery", "magiclink", "email/signup", "email_change"].includes(method);
+    if (typeof method !== "string" || typeof timestamp !== "number" || !Number.isFinite(timestamp))
+      return false;
+    const emailMethod = [
+      "invite",
+      "recovery",
+      "magiclink",
+      "email/signup",
+      "email_change",
+    ].includes(method);
     // A generic OTP may be an SMS. Do not treat phone authentication as email proof.
     const emailOtp = method === "otp" && !user.phone && !claims.phone;
     const age = now / 1000 - timestamp;
@@ -43,24 +55,25 @@ export function canActivateOwner(
 }
 
 /** Send a link, not a password or an already-authenticated administrator session. */
-export async function sendOwnerAccess(
-  admin: AdminClient,
-  input: { name: string; email: string },
-) {
-  if (!isOwnerEmail(input.email)) throw new Error("Este e-mail não está autorizado para a administração.");
+export async function sendOwnerAccess(admin: AdminClient, input: { name: string; email: string }) {
+  if (!isOwnerEmail(input.email))
+    throw new Error("Este e-mail não está autorizado para a administração.");
   const { error } = await admin.auth.admin.inviteUserByEmail(OWNER_EMAIL, {
     data: { full_name: input.name },
   });
   if (error) {
     // Existing accounts prove ownership again instead of having their password overwritten.
     if (!["email_exists", "user_already_exists"].includes(error.code ?? "")) {
-      throw new Error("Não foi possível enviar o acesso. Verifique a configuração de e-mail do servidor.");
+      throw new Error(
+        "Não foi possível enviar o acesso. Verifique a configuração de e-mail do servidor.",
+      );
     }
     const { error: otpError } = await admin.auth.signInWithOtp({
       email: OWNER_EMAIL,
       options: { shouldCreateUser: false },
     });
-    if (otpError) throw new Error("Não foi possível enviar o link de acesso. Tente novamente mais tarde.");
+    if (otpError)
+      throw new Error("Não foi possível enviar o link de acesso. Tente novamente mais tarde.");
   }
   return { verificationRequired: true };
 }
@@ -87,11 +100,16 @@ export async function activateVerifiedOwner(
     });
     if (markError) throw new Error("Não foi possível registrar a confirmação do administrador.");
   }
-  const { data: profile, error: profileError } = await admin.from("profiles")
+  const { data: profile, error: profileError } = await admin
+    .from("profiles")
     .update({ status: "active", access_expires_at: null })
-    .eq("id", userId).select("id").single();
-  if (profileError || !profile) throw new Error("Não foi possível ativar o perfil do administrador.");
-  const { error: roleError } = await admin.from("user_roles")
+    .eq("id", userId)
+    .select("id")
+    .single();
+  if (profileError || !profile)
+    throw new Error("Não foi possível ativar o perfil do administrador.");
+  const { error: roleError } = await admin
+    .from("user_roles")
     .upsert({ user_id: userId, role: "admin" }, { onConflict: "user_id,role" });
   if (roleError) throw new Error("Não foi possível salvar a permissão administrativa.");
   return { activated: true };

@@ -37,4 +37,9 @@ export default tseslint.config(
     },
   },
   eslintPluginPrettier,
+  {
+    // Lovable owns generated files: retain code checks without rewriting their formatting.
+    files: ["src/integrations/supabase/**/*.{ts,tsx}"],
+    rules: { "prettier/prettier": "off" },
+  },
 );

@@ -1,5 +1,30 @@
-import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, BookOpen, CheckCircle2, ChevronRight, Download, ExternalLink, FileText, GraduationCap, LayoutDashboard, Library, LoaderCircle, LogOut, Megaphone, Menu, Plus, Settings, Shield, Sparkles, Users, Wrench, X, Sun, Moon } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  BookOpen,
+  CheckCircle2,
+  ChevronRight,
+  Download,
+  ExternalLink,
+  FileText,
+  GraduationCap,
+  LayoutDashboard,
+  Library,
+  LoaderCircle,
+  LogOut,
+  Megaphone,
+  Menu,
+  Plus,
+  Settings,
+  Shield,
+  Sparkles,
+  Users,
+  Wrench,
+  X,
+  Sun,
+  Moon,
+} from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { AuthProvider, isMemberBlocked, useAuth } from "@/lib/auth";
 import { approvalState } from "@/lib/approval";
@@ -9,29 +34,120 @@ import { AccessScreen } from "./AccessScreen";
 import { AdminPage } from "./AdminPage";
 import { inviteMentee } from "@/lib/admin.functions";
 import { openMaterial, uploadMaterial, uploadMedia, useMedia } from "@/lib/media";
-import { displayPlatformName, emptyData, formatDate, loadPortalData, safeHttps, videoSource, type PortalData, type Row } from "@/lib/portal";
+import {
+  displayPlatformName,
+  emptyData,
+  formatDate,
+  loadPortalData,
+  safeHttps,
+  videoSource,
+  type PortalData,
+  type Row,
+} from "@/lib/portal";
 
-type View = "home" | "trainings" | "training" | "lesson" | "library" | "tools" | "announcements" | "profile" | "admin" | "manage-trainings" | "manage-library" | "manage-tools" | "mentees" | "cohorts" | "manage-announcements" | "settings";
+type View =
+  | "home"
+  | "trainings"
+  | "training"
+  | "lesson"
+  | "library"
+  | "tools"
+  | "announcements"
+  | "profile"
+  | "admin"
+  | "manage-trainings"
+  | "manage-library"
+  | "manage-tools"
+  | "mentees"
+  | "cohorts"
+  | "manage-announcements"
+  | "settings";
 type FormValue = Record<string, string | boolean>;
 const navStudent: { id: View; name: string; icon: typeof BookOpen }[] = [
-  { id: "home", name: "Início", icon: LayoutDashboard }, { id: "trainings", name: "Treinamentos", icon: GraduationCap },
-  { id: "library", name: "Biblioteca", icon: Library }, { id: "tools", name: "Ferramentas", icon: Wrench },
-  { id: "announcements", name: "Comunicados", icon: Megaphone }, { id: "profile", name: "Meu perfil", icon: Users },
+  { id: "home", name: "Início", icon: LayoutDashboard },
+  { id: "trainings", name: "Treinamentos", icon: GraduationCap },
+  { id: "library", name: "Biblioteca", icon: Library },
+  { id: "tools", name: "Ferramentas", icon: Wrench },
+  { id: "announcements", name: "Comunicados", icon: Megaphone },
+  { id: "profile", name: "Meu perfil", icon: Users },
 ];
 const navAdmin: { id: View; name: string; icon: typeof BookOpen }[] = [
-  { id: "admin", name: "Visão geral", icon: LayoutDashboard }, { id: "manage-trainings", name: "Treinamentos", icon: GraduationCap },
-  { id: "manage-library", name: "Biblioteca", icon: Library }, { id: "manage-tools", name: "Ferramentas", icon: Wrench },
-  { id: "mentees", name: "Mentorados", icon: Users }, { id: "cohorts", name: "Turmas", icon: BookOpen },
-  { id: "manage-announcements", name: "Comunicados", icon: Megaphone }, { id: "settings", name: "Configurações", icon: Settings },
+  { id: "admin", name: "Visão geral", icon: LayoutDashboard },
+  { id: "manage-trainings", name: "Treinamentos", icon: GraduationCap },
+  { id: "manage-library", name: "Biblioteca", icon: Library },
+  { id: "manage-tools", name: "Ferramentas", icon: Wrench },
+  { id: "mentees", name: "Mentorados", icon: Users },
+  { id: "cohorts", name: "Turmas", icon: BookOpen },
+  { id: "manage-announcements", name: "Comunicados", icon: Megaphone },
+  { id: "settings", name: "Configurações", icon: Settings },
 ];
-function Alert({ message }: { message?: string }) { return message ? <p role="status" className="p-3 text-sm rounded-xl border border-primary/20 bg-primary/5 mt-3">{message}</p> : null; }
-function Empty({ title, description }: { title: string; description: string }) { return <div className="surface text-center p-12"><BookOpen className="size-9 text-muted-foreground mx-auto mb-4" /><p className="font-semibold">{title}</p><p className="text-muted-foreground text-sm mt-2">{description}</p></div>; }
-function Heading({ title, subtitle, action }: { title: string; subtitle?: string; action?: React.ReactNode }) { return <div className="flex justify-between items-end gap-4 mb-6 flex-wrap"><div><h1 className="text-2xl sm:text-3xl font-semibold">{title}</h1>{subtitle && <p className="text-muted-foreground text-sm mt-2">{subtitle}</p>}</div>{action}</div>; }
-function MediaCover({ src }: { src?: string | null }) { const resolved = useMedia(src); return <div className="h-40 bg-gradient-to-br from-blue-800/40 via-indigo-950/50 to-card flex items-center justify-center overflow-hidden">{resolved ? <img src={resolved} alt="" className="h-full w-full object-cover" /> : <GraduationCap className="size-12 text-blue-400/60" />}</div>; }
+function Alert({ message }: { message?: string }) {
+  return message ? (
+    <p role="status" className="p-3 text-sm rounded-xl border border-primary/20 bg-primary/5 mt-3">
+      {message}
+    </p>
+  ) : null;
+}
+function Empty({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="surface text-center p-12">
+      <BookOpen className="size-9 text-muted-foreground mx-auto mb-4" />
+      <p className="font-semibold">{title}</p>
+      <p className="text-muted-foreground text-sm mt-2">{description}</p>
+    </div>
+  );
+}
+function Heading({
+  title,
+  subtitle,
+  action,
+}: {
+  title: string;
+  subtitle?: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="flex justify-between items-end gap-4 mb-6 flex-wrap">
+      <div>
+        <h1 className="text-2xl sm:text-3xl font-semibold">{title}</h1>
+        {subtitle && <p className="text-muted-foreground text-sm mt-2">{subtitle}</p>}
+      </div>
+      {action}
+    </div>
+  );
+}
+function MediaCover({ src }: { src?: string | null }) {
+  const resolved = useMedia(src);
+  return (
+    <div className="h-40 bg-gradient-to-br from-blue-800/40 via-indigo-950/50 to-card flex items-center justify-center overflow-hidden">
+      {resolved ? (
+        <img src={resolved} alt="" className="h-full w-full object-cover" />
+      ) : (
+        <GraduationCap className="size-12 text-blue-400/60" />
+      )}
+    </div>
+  );
+}
 
-export function PortalApp() { return <AuthProvider><Portal /></AuthProvider>; }
+export function PortalApp() {
+  return (
+    <AuthProvider>
+      <Portal />
+    </AuthProvider>
+  );
+}
 function Portal() {
-  const { session, profile, isAdmin, loading, settings, refresh, refreshSettings, requiresPasswordSetup, clearPasswordSetup } = useAuth();
+  const {
+    session,
+    profile,
+    isAdmin,
+    loading,
+    settings,
+    refresh,
+    refreshSettings,
+    requiresPasswordSetup,
+    clearPasswordSetup,
+  } = useAuth();
   const [data, setData] = useState<PortalData>(emptyData);
   const [demo, setDemo] = useState(false);
   const [demoData, setDemoData] = useState<PortalData>(createDemoPortalData);
@@ -42,104 +158,943 @@ function Portal() {
   const [mobile, setMobile] = useState(false);
   const [fetching, setFetching] = useState(false);
   const [lightTheme, setLightTheme] = useState(false);
-  useEffect(() => { setLightTheme(localStorage.getItem("theme") === "light"); }, []);
-  const toggleTheme = () => { const next = !lightTheme; setLightTheme(next); localStorage.setItem("theme", next ? "light" : "dark"); document.documentElement.classList.toggle("light", next); };
+  useEffect(() => {
+    setLightTheme(localStorage.getItem("theme") === "light");
+  }, []);
+  const toggleTheme = () => {
+    const next = !lightTheme;
+    setLightTheme(next);
+    localStorage.setItem("theme", next ? "light" : "dark");
+    document.documentElement.classList.toggle("light", next);
+  };
   const [error, setError] = useState("");
   const brandName = displayPlatformName(settings?.platform_name);
   const logo = useMedia(settings?.logo_url);
   const favicon = useMedia(settings?.favicon_url);
-  useEffect(() => { if (favicon) { const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]'); if (link) link.href = favicon; } }, [favicon]);
+  useEffect(() => {
+    if (favicon) {
+      const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+      if (link) link.href = favicon;
+    }
+  }, [favicon]);
 
-  const reload = async () => {
-    if (!session) return;
+  const currentUserId = session?.user.id;
+  const dataRequest = useRef(0);
+  const canLoad = !!currentUserId && (isAdmin || !isMemberBlocked(profile));
+  const reload = useCallback(async () => {
+    const request = ++dataRequest.current;
+    if (!currentUserId || !canLoad) {
+      setData(emptyData);
+      setFetching(false);
+      return;
+    }
     setFetching(true);
-    try { setData(await loadPortalData(session.user.id, isAdmin)); setError(""); }
-    catch (e) { setError(e instanceof Error ? e.message : "Erro ao carregar dados."); }
-    finally { setFetching(false); }
+    try {
+      const result = await loadPortalData(currentUserId, isAdmin);
+      if (request === dataRequest.current) {
+        setData(result);
+        setError("");
+      }
+    } catch (e) {
+      if (request === dataRequest.current)
+        setError(e instanceof Error ? e.message : "Erro ao carregar dados.");
+    } finally {
+      if (request === dataRequest.current) setFetching(false);
+    }
+  }, [currentUserId, canLoad, isAdmin]);
+  useEffect(() => {
+    setData(emptyData);
+    if (!loading) void reload();
+    return () => {
+      dataRequest.current += 1;
+    };
+  }, [loading, reload]);
+  const navigate = (next: View, target = "") => {
+    setPage(next);
+    setId(target);
+    setMobile(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
-  useEffect(() => { if (session && !loading) void reload(); else setData(emptyData); }, [session?.user.id, isAdmin, loading]);
-  const navigate = (next: View, target = "") => { setPage(next); setId(target); setMobile(false); window.scrollTo({ top: 0, behavior: "smooth" }); };
-  useEffect(() => { if (isAdmin && !initializedAdmin.current) { initializedAdmin.current = true; setAdminMode(true); setPage("admin"); } }, [isAdmin]);
-  if (loading) return <div className="min-h-screen flex items-center justify-center text-muted-foreground"><LoaderCircle className="animate-spin mr-2" />Carregando...</div>;
-  const recoveryType = typeof window !== "undefined" ? new URLSearchParams(window.location.hash.slice(1)).get("type") || new URLSearchParams(window.location.search).get("type") : null;
-  if (session && (requiresPasswordSetup || recoveryType === "recovery" || recoveryType === "invite")) return <AccessScreen forceRecovery name={brandName} logo={settings?.logo_url} image={settings?.login_image_url} onSuccess={() => { clearPasswordSetup(); void refresh(); }} />;
-  if (!session && !demo) return <AccessScreen name={brandName} title={settings?.login_title} subtitle={settings?.login_subtitle} logo={settings?.logo_url} image={settings?.login_image_url} onSuccess={() => void refresh()} onDemo={() => { setDemoData(createDemoPortalData()); setDemo(true); setPage("home"); }} />;
-  if (!demo && isMemberBlocked(profile) && !isAdmin) return <div className="min-h-screen grid place-content-center text-center p-6"><Shield className="size-10 mx-auto text-destructive mb-4" /><h1 className="text-2xl font-semibold">Acesso indisponível</h1><p className="text-muted-foreground mt-2 max-w-md">{!profile ? "Não foi possível verificar sua autorização de acesso. Tente novamente mais tarde." : approvalState(profile) === "pending" ? "Sua solicitação foi recebida e está aguardando aprovação do administrador de A ORDEM. Você ainda não pode acessar os conteúdos." : approvalState(profile) === "rejected" ? "Sua solicitação de acesso foi recusada pelo administrador." : "Sua conta está suspensa ou o acesso expirou. Fale com o suporte."}</p><button className="portal-outline mx-auto mt-6" onClick={() => void supabase.auth.signOut()}>Sair</button></div>;
+  useEffect(() => {
+    if (isAdmin && !initializedAdmin.current) {
+      initializedAdmin.current = true;
+      setAdminMode(true);
+      setPage("admin");
+    }
+  }, [isAdmin]);
+  if (loading)
+    return (
+      <div className="min-h-screen flex items-center justify-center text-muted-foreground">
+        <LoaderCircle className="animate-spin mr-2" />
+        Carregando...
+      </div>
+    );
+  const recoveryType =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.hash.slice(1)).get("type") ||
+        new URLSearchParams(window.location.search).get("type")
+      : null;
+  if (
+    session &&
+    (requiresPasswordSetup || recoveryType === "recovery" || recoveryType === "invite")
+  )
+    return (
+      <AccessScreen
+        forceRecovery
+        name={brandName}
+        logo={settings?.logo_url}
+        image={settings?.login_image_url}
+        onSuccess={() => {
+          clearPasswordSetup();
+          void refresh();
+        }}
+      />
+    );
+  if (!session && !demo)
+    return (
+      <AccessScreen
+        name={brandName}
+        title={settings?.login_title}
+        subtitle={settings?.login_subtitle}
+        logo={settings?.logo_url}
+        image={settings?.login_image_url}
+        onSuccess={() => void refresh()}
+        onDemo={() => {
+          setDemoData(createDemoPortalData());
+          setDemo(true);
+          setPage("home");
+        }}
+      />
+    );
+  if (!demo && isMemberBlocked(profile) && !isAdmin)
+    return (
+      <div className="min-h-screen grid place-content-center text-center p-6">
+        <Shield className="size-10 mx-auto text-destructive mb-4" />
+        <h1 className="text-2xl font-semibold">Acesso indisponível</h1>
+        <p className="text-muted-foreground mt-2 max-w-md">
+          {!profile
+            ? "Não foi possível verificar sua autorização de acesso. Tente novamente mais tarde."
+            : approvalState(profile) === "pending"
+              ? "Sua solicitação foi recebida e está aguardando aprovação do administrador de A ORDEM. Você ainda não pode acessar os conteúdos."
+              : approvalState(profile) === "rejected"
+                ? "Sua solicitação de acesso foi recusada pelo administrador."
+                : "Sua conta está suspensa ou o acesso expirou. Fale com o suporte."}
+        </p>
+        <button
+          className="portal-outline mx-auto mt-6"
+          onClick={() => void supabase.auth.signOut()}
+        >
+          Sair
+        </button>
+      </div>
+    );
   const menu = !demo && adminMode && isAdmin ? navAdmin : navStudent;
-  const current = menu.find((x) => x.id === page)?.name || (page === "lesson" ? "Aula" : "Treinamento");
+  const current =
+    menu.find((x) => x.id === page)?.name || (page === "lesson" ? "Aula" : "Treinamento");
   const name = brandName;
-  return <div className="min-h-screen bg-background lg:pl-64">
-    {mobile && <button aria-label="Fechar menu" className="fixed inset-0 bg-black/70 z-40 lg:hidden" onClick={() => setMobile(false)} />}
-    <aside className={"fixed top-0 left-0 bottom-0 w-64 bg-sidebar border-r border-sidebar-border z-50 flex flex-col transition-transform lg:translate-x-0 " + (mobile ? "translate-x-0" : "-translate-x-full")}>
-      <div className="flex items-center gap-3 p-6 border-b border-sidebar-border"><span className="rounded-xl bg-primary p-2 text-white">{logo ? <img src={logo} alt="" className="size-5 object-contain" /> : <GraduationCap className="size-5" />}</span><span className="font-semibold truncate">{name}</span><button className="lg:hidden ml-auto" onClick={() => setMobile(false)}><X className="size-5" /></button></div>
-      <div className="px-4 pt-6 pb-2 text-[11px] text-muted-foreground font-semibold uppercase tracking-widest">{!demo && adminMode ? "Administração" : "Área do mentorado"}</div>
-      <nav className="p-3 flex-1 space-y-1 overflow-y-auto">{menu.map((item) => <button key={item.id} onClick={() => navigate(item.id)} className={"w-full flex gap-3 items-center rounded-xl px-4 py-3 text-sm transition-colors " + (page === item.id ? "bg-primary/10 text-primary font-semibold" : "text-sidebar-foreground hover:bg-sidebar-accent")}><item.icon className="size-4" />{item.name}</button>)}</nav>
-      {!demo && isAdmin && <button onClick={() => { setAdminMode(!adminMode); navigate(adminMode ? "home" : "admin"); }} className="mx-4 mb-3 portal-outline text-xs justify-center">{adminMode ? "Ver área do mentorado" : "Abrir administração"} <ArrowRight className="size-3" /></button>}
-      <div className="border-t border-sidebar-border p-4"><p className="font-medium text-sm truncate">{demo ? DEMO_MEMBER_NAME : profile?.full_name || session?.user.email}</p><p className="text-xs text-muted-foreground truncate mt-1">{demo ? DEMO_EMAIL : session?.user.email}</p><button className="text-muted-foreground text-sm flex items-center gap-2 mt-4 hover:text-foreground" onClick={() => { if (demo) { setDemo(false); navigate("home"); } else void supabase.auth.signOut(); }}><LogOut className="size-4" />Sair da conta</button></div>
-    </aside>
-    <div className="min-w-0"><header className="h-20 border-b flex items-center justify-between px-5 sm:px-9 sticky top-0 z-30 bg-background/95 backdrop-blur"><div className="flex items-center gap-3"><button className="lg:hidden" aria-label="Abrir menu" onClick={() => setMobile(true)}><Menu /></button><span className="text-sm text-muted-foreground">{!demo && adminMode ? "Administração" : "Mentoria"} <ChevronRight className="inline size-3" /> <span className="text-foreground">{current}</span></span></div><div className="flex items-center gap-3"><button onClick={toggleTheme} aria-label="Alternar tema" className="text-muted-foreground hover:text-foreground">{lightTheme ? <Moon className="size-5" /> : <Sun className="size-5" />}</button>{fetching && <LoaderCircle className="size-4 animate-spin text-primary" />}<span className="size-9 rounded-full bg-primary/15 text-primary flex items-center justify-center font-semibold">{(demo ? DEMO_MEMBER_NAME : profile?.full_name || "M").charAt(0).toUpperCase()}</span></div></header>
-      <main className="max-w-[1440px] mx-auto p-5 sm:p-9 space-y-6">{demo && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm"><span><strong>Prévia de mentorado</strong> · Dados fictícios, sem acesso às contas ou aulas reais.</span><button onClick={() => { setDemo(false); navigate("home"); }} className="text-primary font-semibold hover:underline">Encerrar demonstração</button></div>}{!demo && error && <Alert message={error} />}
-        {!demo && adminMode && isAdmin ? <AdminPage page={page} data={data} reload={reload} go={navigate} settings={settings} refreshSettings={refreshSettings} /> :
-          <MemberPage page={page} id={id} data={demo ? demoData : data} reload={reload} go={navigate} userId={demo ? DEMO_USER_ID : session?.user.id || ""} isAdmin={!demo && isAdmin} name={demo ? DEMO_MEMBER_NAME : profile?.full_name || ""} welcome={settings?.welcome_message || "Seu ambiente de conhecimento, estratégias e ferramentas exclusivas."} demo={demo}
-            onDemoProgress={(lessonId, completed, seconds) => setDemoData((old) => {
-              const previous = old.progress.find((p) => p.lesson_id === lessonId);
-              const updated: Row<"lesson_progress"> = {
-                user_id: DEMO_USER_ID, lesson_id: lessonId, completed,
-                completed_at: completed ? new Date().toISOString() : null,
-                position_seconds: Math.floor(seconds), updated_at: new Date().toISOString(),
-              };
-              return { ...old, progress: [...old.progress.filter((p) => p.lesson_id !== lessonId), { ...previous, ...updated }] };
-            })}
-            onDemoNote={(lessonId, content) => setDemoData((old) => ({
-              ...old, notes: [...old.notes.filter((n) => n.lesson_id !== lessonId), {
-                user_id: DEMO_USER_ID, lesson_id: lessonId, content, updated_at: new Date().toISOString(),
-              }],
-            }))} />}
-      </main>
+  return (
+    <div className="min-h-screen bg-background lg:pl-64">
+      {mobile && (
+        <button
+          aria-label="Fechar menu"
+          className="fixed inset-0 bg-black/70 z-40 lg:hidden"
+          onClick={() => setMobile(false)}
+        />
+      )}
+      <aside
+        className={
+          "fixed top-0 left-0 bottom-0 w-64 bg-sidebar border-r border-sidebar-border z-50 flex flex-col transition-transform lg:translate-x-0 " +
+          (mobile ? "translate-x-0" : "-translate-x-full")
+        }
+      >
+        <div className="flex items-center gap-3 p-6 border-b border-sidebar-border">
+          <span className="rounded-xl bg-primary p-2 text-white">
+            {logo ? (
+              <img src={logo} alt="" className="size-5 object-contain" />
+            ) : (
+              <GraduationCap className="size-5" />
+            )}
+          </span>
+          <span className="font-semibold truncate">{name}</span>
+          <button className="lg:hidden ml-auto" onClick={() => setMobile(false)}>
+            <X className="size-5" />
+          </button>
+        </div>
+        <div className="px-4 pt-6 pb-2 text-[11px] text-muted-foreground font-semibold uppercase tracking-widest">
+          {!demo && adminMode ? "Administração" : "Área do mentorado"}
+        </div>
+        <nav className="p-3 flex-1 space-y-1 overflow-y-auto">
+          {menu.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => navigate(item.id)}
+              className={
+                "w-full flex gap-3 items-center rounded-xl px-4 py-3 text-sm transition-colors " +
+                (page === item.id
+                  ? "bg-primary/10 text-primary font-semibold"
+                  : "text-sidebar-foreground hover:bg-sidebar-accent")
+              }
+            >
+              <item.icon className="size-4" />
+              {item.name}
+            </button>
+          ))}
+        </nav>
+        {!demo && isAdmin && (
+          <button
+            onClick={() => {
+              setAdminMode(!adminMode);
+              navigate(adminMode ? "home" : "admin");
+            }}
+            className="mx-4 mb-3 portal-outline text-xs justify-center"
+          >
+            {adminMode ? "Ver área do mentorado" : "Abrir administração"}{" "}
+            <ArrowRight className="size-3" />
+          </button>
+        )}
+        <div className="border-t border-sidebar-border p-4">
+          <p className="font-medium text-sm truncate">
+            {demo ? DEMO_MEMBER_NAME : profile?.full_name || session?.user.email}
+          </p>
+          <p className="text-xs text-muted-foreground truncate mt-1">
+            {demo ? DEMO_EMAIL : session?.user.email}
+          </p>
+          <button
+            className="text-muted-foreground text-sm flex items-center gap-2 mt-4 hover:text-foreground"
+            onClick={() => {
+              if (demo) {
+                setDemo(false);
+                navigate("home");
+              } else void supabase.auth.signOut();
+            }}
+          >
+            <LogOut className="size-4" />
+            Sair da conta
+          </button>
+        </div>
+      </aside>
+      <div className="min-w-0">
+        <header className="h-20 border-b flex items-center justify-between px-5 sm:px-9 sticky top-0 z-30 bg-background/95 backdrop-blur">
+          <div className="flex items-center gap-3">
+            <button className="lg:hidden" aria-label="Abrir menu" onClick={() => setMobile(true)}>
+              <Menu />
+            </button>
+            <span className="text-sm text-muted-foreground">
+              {!demo && adminMode ? "Administração" : "Mentoria"}{" "}
+              <ChevronRight className="inline size-3" />{" "}
+              <span className="text-foreground">{current}</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={toggleTheme}
+              aria-label="Alternar tema"
+              className="text-muted-foreground hover:text-foreground"
+            >
+              {lightTheme ? <Moon className="size-5" /> : <Sun className="size-5" />}
+            </button>
+            {fetching && <LoaderCircle className="size-4 animate-spin text-primary" />}
+            <span className="size-9 rounded-full bg-primary/15 text-primary flex items-center justify-center font-semibold">
+              {(demo ? DEMO_MEMBER_NAME : profile?.full_name || "M").charAt(0).toUpperCase()}
+            </span>
+          </div>
+        </header>
+        <main className="max-w-[1440px] mx-auto p-5 sm:p-9 space-y-6">
+          {demo && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm">
+              <span>
+                <strong>Prévia de mentorado</strong> · Dados fictícios, sem acesso às contas ou
+                aulas reais.
+              </span>
+              <button
+                onClick={() => {
+                  setDemo(false);
+                  navigate("home");
+                }}
+                className="text-primary font-semibold hover:underline"
+              >
+                Encerrar demonstração
+              </button>
+            </div>
+          )}
+          {!demo && error && <Alert message={error} />}
+          {!demo && adminMode && isAdmin ? (
+            <AdminPage
+              page={page}
+              data={data}
+              reload={reload}
+              go={navigate}
+              settings={settings}
+              refreshSettings={refreshSettings}
+            />
+          ) : (
+            <MemberPage
+              page={page}
+              id={id}
+              data={demo ? demoData : data}
+              reload={reload}
+              go={navigate}
+              userId={demo ? DEMO_USER_ID : session?.user.id || ""}
+              isAdmin={!demo && isAdmin}
+              name={demo ? DEMO_MEMBER_NAME : profile?.full_name || ""}
+              welcome={
+                settings?.welcome_message ||
+                "Seu ambiente de conhecimento, estratégias e ferramentas exclusivas."
+              }
+              demo={demo}
+              onDemoProgress={(lessonId, completed, seconds) =>
+                setDemoData((old) => {
+                  const previous = old.progress.find((p) => p.lesson_id === lessonId);
+                  const updated: Row<"lesson_progress"> = {
+                    user_id: DEMO_USER_ID,
+                    lesson_id: lessonId,
+                    completed,
+                    completed_at: completed ? new Date().toISOString() : null,
+                    position_seconds: Math.floor(seconds),
+                    updated_at: new Date().toISOString(),
+                  };
+                  return {
+                    ...old,
+                    progress: [
+                      ...old.progress.filter((p) => p.lesson_id !== lessonId),
+                      { ...previous, ...updated },
+                    ],
+                  };
+                })
+              }
+              onDemoNote={(lessonId, content) =>
+                setDemoData((old) => ({
+                  ...old,
+                  notes: [
+                    ...old.notes.filter((n) => n.lesson_id !== lessonId),
+                    {
+                      user_id: DEMO_USER_ID,
+                      lesson_id: lessonId,
+                      content,
+                      updated_at: new Date().toISOString(),
+                    },
+                  ],
+                }))
+              }
+            />
+          )}
+        </main>
+      </div>
     </div>
-  </div>;
+  );
 }
 
-function MemberPage({ page, id, data, reload, go, userId, isAdmin, name, welcome, demo = false, onDemoProgress, onDemoNote }: { page: View; id: string; data: PortalData; reload: () => Promise<void>; go: (page: View, id?: string) => void; userId: string; isAdmin: boolean; name: string; welcome: string; demo?: boolean; onDemoProgress?: (lessonId: string, completed: boolean, seconds: number) => void; onDemoNote?: (lessonId: string, content: string) => void }) {
+function MemberPage({
+  page,
+  id,
+  data,
+  reload,
+  go,
+  userId,
+  isAdmin,
+  name,
+  welcome,
+  demo = false,
+  onDemoProgress,
+  onDemoNote,
+}: {
+  page: View;
+  id: string;
+  data: PortalData;
+  reload: () => Promise<void>;
+  go: (page: View, id?: string) => void;
+  userId: string;
+  isAdmin: boolean;
+  name: string;
+  welcome: string;
+  demo?: boolean;
+  onDemoProgress?: ((lessonId: string, completed: boolean, seconds: number) => void) | undefined;
+  onDemoNote?: ((lessonId: string, content: string) => void) | undefined;
+}) {
   const { profile, refresh } = useAuth();
   const [feedback, setFeedback] = useState("");
   const available = data.trainings.filter((t) => isAdmin || t.status === "published");
   const lessons = data.lessons.filter((l) => isAdmin || l.status === "published");
   const completed = data.progress.filter((p) => p.completed).length;
-  if (page === "profile" && demo) return <div><Heading title="Meu perfil" subtitle="Visualização do perfil de um mentorado." /><div className="surface p-6 max-w-xl space-y-3"><p className="text-sm text-muted-foreground">Nome</p><p className="font-semibold">{DEMO_MEMBER_NAME}</p><p className="text-sm text-muted-foreground">E-mail</p><p>{DEMO_EMAIL}</p><p className="text-xs text-primary pt-3">Perfil demonstrativo. Nenhuma alteração será enviada ao banco de dados.</p></div></div>;
-  if (page === "profile") return <div><Heading title="Meu perfil" subtitle="Mantenha suas informações atualizadas." /><div className="surface p-6 max-w-xl"><form onSubmit={async (e) => { e.preventDefault(); const fd = new FormData(e.currentTarget); const { error } = await supabase.from("profiles").update({ full_name: String(fd.get("name")) }).eq("id", userId); setFeedback(error?.message || "Perfil atualizado."); await refresh(); }} className="space-y-4"><label className="block text-sm">Nome completo<input name="name" defaultValue={profile?.full_name} required className="portal-input mt-2" /></label><button className="portal-button">Salvar perfil</button></form><button className="portal-outline mt-5" onClick={async () => { const { error } = await supabase.auth.resetPasswordForEmail(profile?.email || ""); setFeedback(error?.message || "Confira seu e-mail para redefinir a senha."); }}>Alterar minha senha</button><Alert message={feedback} /></div></div>;
+  if (page === "profile" && demo)
+    return (
+      <div>
+        <Heading title="Meu perfil" subtitle="Visualização do perfil de um mentorado." />
+        <div className="surface p-6 max-w-xl space-y-3">
+          <p className="text-sm text-muted-foreground">Nome</p>
+          <p className="font-semibold">{DEMO_MEMBER_NAME}</p>
+          <p className="text-sm text-muted-foreground">E-mail</p>
+          <p>{DEMO_EMAIL}</p>
+          <p className="text-xs text-primary pt-3">
+            Perfil demonstrativo. Nenhuma alteração será enviada ao banco de dados.
+          </p>
+        </div>
+      </div>
+    );
+  if (page === "profile")
+    return (
+      <div>
+        <Heading title="Meu perfil" subtitle="Mantenha suas informações atualizadas." />
+        <div className="surface p-6 max-w-xl">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const fd = new FormData(e.currentTarget);
+              const { error } = await supabase
+                .from("profiles")
+                .update({ full_name: String(fd.get("name")) })
+                .eq("id", userId);
+              setFeedback(error?.message || "Perfil atualizado.");
+              await refresh();
+            }}
+            className="space-y-4"
+          >
+            <label className="block text-sm">
+              Nome completo
+              <input
+                name="name"
+                defaultValue={profile?.full_name}
+                required
+                className="portal-input mt-2"
+              />
+            </label>
+            <button className="portal-button">Salvar perfil</button>
+          </form>
+          <button
+            className="portal-outline mt-5"
+            onClick={async () => {
+              const { error } = await supabase.auth.resetPasswordForEmail(profile?.email || "");
+              setFeedback(error?.message || "Confira seu e-mail para redefinir a senha.");
+            }}
+          >
+            Alterar minha senha
+          </button>
+          <Alert message={feedback} />
+        </div>
+      </div>
+    );
   if (page === "training") {
     const training = available.find((t) => t.id === id);
-    if (!training) return <Empty title="Treinamento indisponível" description="Esse treinamento não está disponível para sua conta." />;
-    const modules = data.modules.filter((m) => m.training_id === id && (isAdmin || m.status === "published"));
-    return <div className="space-y-5"><button className="portal-outline" onClick={() => go("trainings")}><ArrowLeft className="size-4" />Voltar</button><div className="surface overflow-hidden"><MediaCover src={training.cover_url} /><div className="p-7"><h1 className="text-3xl font-semibold">{training.title}</h1><p className="text-muted-foreground mt-3">{training.description}</p><p className="text-xs text-primary mt-4">{modules.length} módulos</p></div></div>{modules.map((m, i) => <div key={m.id} className="surface p-5"><p className="text-xs text-primary">MÓDULO {String(i + 1).padStart(2, "0")}</p><h2 className="font-semibold text-lg mt-1 mb-4">{m.title}</h2>{data.lessons.filter((l) => l.module_id === m.id && (isAdmin || (l.status === "published" && (!l.available_at || new Date(l.available_at) <= new Date())))).map((l) => <button className="w-full p-4 rounded-xl hover:bg-accent flex items-center gap-3 text-left" key={l.id} onClick={() => go("lesson", l.id)}><span className="size-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center">{data.progress.some((p) => p.lesson_id === l.id && p.completed) ? <CheckCircle2 className="size-4" /> : <BookOpen className="size-4" />}</span><span className="flex-1 text-sm font-medium">{l.title}</span><ChevronRight className="size-4" /></button>)}</div>)}</div>;
+    if (!training)
+      return (
+        <Empty
+          title="Treinamento indisponível"
+          description="Esse treinamento não está disponível para sua conta."
+        />
+      );
+    const modules = data.modules.filter(
+      (m) => m.training_id === id && (isAdmin || m.status === "published"),
+    );
+    return (
+      <div className="space-y-5">
+        <button className="portal-outline" onClick={() => go("trainings")}>
+          <ArrowLeft className="size-4" />
+          Voltar
+        </button>
+        <div className="surface overflow-hidden">
+          <MediaCover src={training.cover_url} />
+          <div className="p-7">
+            <h1 className="text-3xl font-semibold">{training.title}</h1>
+            <p className="text-muted-foreground mt-3">{training.description}</p>
+            <p className="text-xs text-primary mt-4">{modules.length} módulos</p>
+          </div>
+        </div>
+        {modules.map((m, i) => (
+          <div key={m.id} className="surface p-5">
+            <p className="text-xs text-primary">MÓDULO {String(i + 1).padStart(2, "0")}</p>
+            <h2 className="font-semibold text-lg mt-1 mb-4">{m.title}</h2>
+            {data.lessons
+              .filter(
+                (l) =>
+                  l.module_id === m.id &&
+                  (isAdmin ||
+                    (l.status === "published" &&
+                      (!l.available_at || new Date(l.available_at) <= new Date()))),
+              )
+              .map((l) => (
+                <button
+                  className="w-full p-4 rounded-xl hover:bg-accent flex items-center gap-3 text-left"
+                  key={l.id}
+                  onClick={() => go("lesson", l.id)}
+                >
+                  <span className="size-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+                    {data.progress.some((p) => p.lesson_id === l.id && p.completed) ? (
+                      <CheckCircle2 className="size-4" />
+                    ) : (
+                      <BookOpen className="size-4" />
+                    )}
+                  </span>
+                  <span className="flex-1 text-sm font-medium">{l.title}</span>
+                  <ChevronRight className="size-4" />
+                </button>
+              ))}
+          </div>
+        ))}
+      </div>
+    );
   }
-  if (page === "lesson") return <LessonPage key={id} id={id} data={data} reload={reload} go={go} userId={userId} demo={demo} onDemoProgress={onDemoProgress} onDemoNote={onDemoNote} />;
-  if (page === "trainings") return <><Heading title="Meus treinamentos" subtitle="Explore os conteúdos disponíveis para sua conta." />{available.length ? <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">{available.map((t) => <TrainingCard key={t.id} training={t} data={data} go={go} />)}</div> : <Empty title="Nenhum treinamento liberado" description="Quando o administrador liberar seu acesso, seu conteúdo aparecerá aqui." />}</>;
-  if (page === "library") return <><Heading title="Biblioteca" subtitle="Materiais e arquivos exclusivos." /><div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">{data.library.filter((l) => isAdmin || l.status === "published").map((l) => <div className="surface p-6" key={l.id}><FileText className="text-primary mb-4" /><h3 className="font-semibold">{l.title}</h3><p className="text-sm text-muted-foreground my-3">{l.description}</p>{l.kind === "article" ? <details><summary className="text-primary text-sm cursor-pointer">Ler artigo</summary><div className="prose-content mt-3"><ReactMarkdown>{l.body || ""}</ReactMarkdown></div></details> : <button className="portal-outline" onClick={async () => { try { if (l.file_path) await openMaterial(l.file_path); else if (safeHttps(l.url)) window.open(l.url!, "_blank", "noopener,noreferrer"); } catch (e) { setFeedback(String(e)); } }} disabled={!l.file_path && !safeHttps(l.url)}><Download className="size-4" />Abrir material</button>}</div>)}</div>{!data.library.length && <Empty title="Biblioteca vazia" description="Os materiais aparecerão aqui depois de publicados." />}<Alert message={feedback} /></>;
-  if (page === "tools") return <><Heading title="Ferramentas" subtitle="Seu catálogo de ferramentas exclusivas." /><div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">{data.tools.filter((t) => t.enabled).map((t) => <div className="surface p-6" key={t.id}><Sparkles className="text-primary mb-4" /><p className="font-semibold">{t.name}</p><p className="text-sm text-muted-foreground my-3">{t.description}</p><span className="text-xs border rounded-full px-3 py-1">{t.status === "soon" ? "Em breve" : t.status}</span>{t.status !== "soon" && t.kind === "external" && safeHttps(t.url) && <a className="portal-outline mt-5" href={safeHttps(t.url)} target="_blank" rel="noopener noreferrer">Abrir ferramenta <ExternalLink className="size-4" /></a>}</div>)}</div>{!data.tools.length && <Empty title="Novas ferramentas em breve" description="Acompanhe os próximos lançamentos." />}</>;
-  if (page === "announcements") return <><Heading title="Comunicados" subtitle="Acompanhe as novidades da sua mentoria." />{data.announcements.map((a) => <article className="surface p-6 mb-4" key={a.id}><p className="text-primary text-xs">{a.pinned ? "DESTAQUE · " : ""}{formatDate(a.published_at)}</p><h2 className="font-semibold text-lg mt-2">{a.title}</h2><p className="text-muted-foreground whitespace-pre-wrap mt-3">{a.body}</p></article>)}{!data.announcements.length && <Empty title="Nenhum comunicado" description="Avisos serão mostrados neste espaço." />}</>;
-  const next = [...data.progress].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).find((p) => !p.completed);
+  if (page === "lesson")
+    return (
+      <LessonPage
+        key={id}
+        id={id}
+        data={data}
+        reload={reload}
+        go={go}
+        userId={userId}
+        demo={demo}
+        onDemoProgress={onDemoProgress}
+        onDemoNote={onDemoNote}
+      />
+    );
+  if (page === "trainings")
+    return (
+      <>
+        <Heading
+          title="Meus treinamentos"
+          subtitle="Explore os conteúdos disponíveis para sua conta."
+        />
+        {available.length ? (
+          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
+            {available.map((t) => (
+              <TrainingCard key={t.id} training={t} data={data} go={go} />
+            ))}
+          </div>
+        ) : (
+          <Empty
+            title="Nenhum treinamento liberado"
+            description="Quando o administrador liberar seu acesso, seu conteúdo aparecerá aqui."
+          />
+        )}
+      </>
+    );
+  if (page === "library")
+    return (
+      <>
+        <Heading title="Biblioteca" subtitle="Materiais e arquivos exclusivos." />
+        <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {data.library
+            .filter((l) => isAdmin || l.status === "published")
+            .map((l) => (
+              <div className="surface p-6" key={l.id}>
+                <FileText className="text-primary mb-4" />
+                <h3 className="font-semibold">{l.title}</h3>
+                <p className="text-sm text-muted-foreground my-3">{l.description}</p>
+                {l.kind === "article" ? (
+                  <details>
+                    <summary className="text-primary text-sm cursor-pointer">Ler artigo</summary>
+                    <div className="prose-content mt-3">
+                      <ReactMarkdown>{l.body || ""}</ReactMarkdown>
+                    </div>
+                  </details>
+                ) : (
+                  <button
+                    className="portal-outline"
+                    onClick={async () => {
+                      try {
+                        if (l.file_path) await openMaterial(l.file_path);
+                        else if (safeHttps(l.url))
+                          window.open(l.url!, "_blank", "noopener,noreferrer");
+                      } catch (e) {
+                        setFeedback(String(e));
+                      }
+                    }}
+                    disabled={!l.file_path && !safeHttps(l.url)}
+                  >
+                    <Download className="size-4" />
+                    Abrir material
+                  </button>
+                )}
+              </div>
+            ))}
+        </div>
+        {!data.library.length && (
+          <Empty
+            title="Biblioteca vazia"
+            description="Os materiais aparecerão aqui depois de publicados."
+          />
+        )}
+        <Alert message={feedback} />
+      </>
+    );
+  if (page === "tools")
+    return (
+      <>
+        <Heading title="Ferramentas" subtitle="Seu catálogo de ferramentas exclusivas." />
+        <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
+          {data.tools
+            .filter((t) => t.enabled)
+            .map((t) => (
+              <div className="surface p-6" key={t.id}>
+                <Sparkles className="text-primary mb-4" />
+                <p className="font-semibold">{t.name}</p>
+                <p className="text-sm text-muted-foreground my-3">{t.description}</p>
+                <span className="text-xs border rounded-full px-3 py-1">
+                  {t.status === "soon" ? "Em breve" : t.status}
+                </span>
+                {t.status !== "soon" && t.kind === "external" && safeHttps(t.url) && (
+                  <a
+                    className="portal-outline mt-5"
+                    href={safeHttps(t.url)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Abrir ferramenta <ExternalLink className="size-4" />
+                  </a>
+                )}
+              </div>
+            ))}
+        </div>
+        {!data.tools.length && (
+          <Empty
+            title="Novas ferramentas em breve"
+            description="Acompanhe os próximos lançamentos."
+          />
+        )}
+      </>
+    );
+  if (page === "announcements")
+    return (
+      <>
+        <Heading title="Comunicados" subtitle="Acompanhe as novidades da sua mentoria." />
+        {data.announcements.map((a) => (
+          <article className="surface p-6 mb-4" key={a.id}>
+            <p className="text-primary text-xs">
+              {a.pinned ? "DESTAQUE · " : ""}
+              {formatDate(a.published_at)}
+            </p>
+            <h2 className="font-semibold text-lg mt-2">{a.title}</h2>
+            <p className="text-muted-foreground whitespace-pre-wrap mt-3">{a.body}</p>
+          </article>
+        ))}
+        {!data.announcements.length && (
+          <Empty title="Nenhum comunicado" description="Avisos serão mostrados neste espaço." />
+        )}
+      </>
+    );
+  const next = [...data.progress]
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+    .find((p) => !p.completed);
   const resume = data.lessons.find((l) => l.id === next?.lesson_id);
-  return <div className="space-y-8"><section className="surface bg-gradient-to-r from-[#112a50] to-card p-8 sm:p-10"><p className="text-blue-300 text-xs tracking-widest font-semibold">SUA JORNADA</p><h1 className="text-3xl sm:text-4xl font-semibold mt-3">{new Date().getHours() < 12 ? "Bom dia" : new Date().getHours() < 18 ? "Boa tarde" : "Boa noite"}, {name.split(" ")[0] || "mentorado"}!</h1><p className="text-muted-foreground mt-4 max-w-lg">{welcome}</p><button className="portal-button mt-6" onClick={() => go("trainings")}>Explorar treinamentos <ArrowRight className="size-4" /></button></section><div className="grid sm:grid-cols-3 gap-4"><Metric name="Aulas concluídas" value={completed} /><Metric name="Aulas disponíveis" value={lessons.length} /><Metric name="Progresso geral" value={lessons.length ? String(Math.round(completed / lessons.length * 100)) + "%" : "0%"} /></div>{resume && <div><Heading title="Continuar assistindo" /><button className="surface p-5 w-full flex items-center text-left gap-4" onClick={() => go("lesson", resume.id)}><BookOpen className="text-primary" /><span className="font-medium flex-1">{resume.title}</span><ArrowRight className="text-primary size-4" /></button></div>}<Heading title="Seus treinamentos" action={<button className="text-primary text-sm" onClick={() => go("trainings")}>Ver todos →</button>} />{available.length ? <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">{available.slice(0, 3).map((t) => <TrainingCard key={t.id} training={t} data={data} go={go} />)}</div> : <Empty title="Seu aprendizado começa aqui" description="Seus treinamentos aparecerão quando o administrador liberar o acesso." />}<div className="grid md:grid-cols-2 gap-5"><button className="surface p-6 text-left" onClick={() => go("announcements")}><Megaphone className="text-primary mb-3" /><p className="font-semibold">Comunicados</p><p className="text-sm text-muted-foreground mt-2">{data.announcements[0]?.title || "Nenhum comunicado por enquanto"}</p></button><button className="surface p-6 text-left" onClick={() => go("tools")}><Sparkles className="text-primary mb-3" /><p className="font-semibold">Ferramentas exclusivas</p><p className="text-sm text-muted-foreground mt-2">Acesse os recursos da sua mentoria</p></button></div></div>;
+  return (
+    <div className="space-y-8">
+      <section className="surface bg-gradient-to-r from-[#112a50] to-card p-8 sm:p-10">
+        <p className="text-blue-300 text-xs tracking-widest font-semibold">SUA JORNADA</p>
+        <h1 className="text-3xl sm:text-4xl font-semibold mt-3">
+          {new Date().getHours() < 12
+            ? "Bom dia"
+            : new Date().getHours() < 18
+              ? "Boa tarde"
+              : "Boa noite"}
+          , {name.split(" ")[0] || "mentorado"}!
+        </h1>
+        <p className="text-muted-foreground mt-4 max-w-lg">{welcome}</p>
+        <button className="portal-button mt-6" onClick={() => go("trainings")}>
+          Explorar treinamentos <ArrowRight className="size-4" />
+        </button>
+      </section>
+      <div className="grid sm:grid-cols-3 gap-4">
+        <Metric name="Aulas concluídas" value={completed} />
+        <Metric name="Aulas disponíveis" value={lessons.length} />
+        <Metric
+          name="Progresso geral"
+          value={
+            lessons.length ? String(Math.round((completed / lessons.length) * 100)) + "%" : "0%"
+          }
+        />
+      </div>
+      {resume && (
+        <div>
+          <Heading title="Continuar assistindo" />
+          <button
+            className="surface p-5 w-full flex items-center text-left gap-4"
+            onClick={() => go("lesson", resume.id)}
+          >
+            <BookOpen className="text-primary" />
+            <span className="font-medium flex-1">{resume.title}</span>
+            <ArrowRight className="text-primary size-4" />
+          </button>
+        </div>
+      )}
+      <Heading
+        title="Seus treinamentos"
+        action={
+          <button className="text-primary text-sm" onClick={() => go("trainings")}>
+            Ver todos →
+          </button>
+        }
+      />
+      {available.length ? (
+        <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
+          {available.slice(0, 3).map((t) => (
+            <TrainingCard key={t.id} training={t} data={data} go={go} />
+          ))}
+        </div>
+      ) : (
+        <Empty
+          title="Seu aprendizado começa aqui"
+          description="Seus treinamentos aparecerão quando o administrador liberar o acesso."
+        />
+      )}
+      <div className="grid md:grid-cols-2 gap-5">
+        <button className="surface p-6 text-left" onClick={() => go("announcements")}>
+          <Megaphone className="text-primary mb-3" />
+          <p className="font-semibold">Comunicados</p>
+          <p className="text-sm text-muted-foreground mt-2">
+            {data.announcements[0]?.title || "Nenhum comunicado por enquanto"}
+          </p>
+        </button>
+        <button className="surface p-6 text-left" onClick={() => go("tools")}>
+          <Sparkles className="text-primary mb-3" />
+          <p className="font-semibold">Ferramentas exclusivas</p>
+          <p className="text-sm text-muted-foreground mt-2">Acesse os recursos da sua mentoria</p>
+        </button>
+      </div>
+    </div>
+  );
 }
-function Metric({ name, value }: { name: string; value: string | number }) { return <div className="surface p-6"><p className="text-sm text-muted-foreground">{name}</p><p className="font-semibold text-3xl mt-3">{value}</p></div>; }
-function TrainingCard({ training, data, go }: { training: Row<"trainings">; data: PortalData; go: (v: View, id?: string) => void }) { const mods = data.modules.filter((m) => m.training_id === training.id); const lessons = data.lessons.filter((l) => mods.some((m) => m.id === l.module_id)); const completed = lessons.filter((l) => data.progress.some((p) => p.lesson_id === l.id && p.completed)).length; return <button className="surface surface-hover text-left overflow-hidden" onClick={() => go("training", training.id)}><MediaCover src={training.cover_url} /><div className="p-5"><p className="text-xs text-primary mb-2">TREINAMENTO</p><h3 className="font-semibold">{training.title}</h3><p className="text-sm text-muted-foreground line-clamp-2 mt-2 min-h-10">{training.description}</p><div className="mt-5 h-1.5 bg-muted rounded-full overflow-hidden"><div className="h-full bg-primary" style={{ width: lessons.length ? String(completed / lessons.length * 100) + "%" : "0%" }} /></div><p className="text-xs text-muted-foreground mt-2">{completed} de {lessons.length} aulas concluídas</p></div></button>; }
-function LessonPage({ id, data, reload, go, userId, demo = false, onDemoProgress, onDemoNote }: { id: string; data: PortalData; reload: () => Promise<void>; go: (v: View, id?: string) => void; userId: string; demo?: boolean; onDemoProgress?: (lessonId: string, completed: boolean, seconds: number) => void; onDemoNote?: (lessonId: string, content: string) => void }) {
+function Metric({ name, value }: { name: string; value: string | number }) {
+  return (
+    <div className="surface p-6">
+      <p className="text-sm text-muted-foreground">{name}</p>
+      <p className="font-semibold text-3xl mt-3">{value}</p>
+    </div>
+  );
+}
+function TrainingCard({
+  training,
+  data,
+  go,
+}: {
+  training: Row<"trainings">;
+  data: PortalData;
+  go: (v: View, id?: string) => void;
+}) {
+  const mods = data.modules.filter((m) => m.training_id === training.id);
+  const lessons = data.lessons.filter((l) => mods.some((m) => m.id === l.module_id));
+  const completed = lessons.filter((l) =>
+    data.progress.some((p) => p.lesson_id === l.id && p.completed),
+  ).length;
+  return (
+    <button
+      className="surface surface-hover text-left overflow-hidden"
+      onClick={() => go("training", training.id)}
+    >
+      <MediaCover src={training.cover_url} />
+      <div className="p-5">
+        <p className="text-xs text-primary mb-2">TREINAMENTO</p>
+        <h3 className="font-semibold">{training.title}</h3>
+        <p className="text-sm text-muted-foreground line-clamp-2 mt-2 min-h-10">
+          {training.description}
+        </p>
+        <div className="mt-5 h-1.5 bg-muted rounded-full overflow-hidden">
+          <div
+            className="h-full bg-primary"
+            style={{
+              width: lessons.length ? String((completed / lessons.length) * 100) + "%" : "0%",
+            }}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">
+          {completed} de {lessons.length} aulas concluídas
+        </p>
+      </div>
+    </button>
+  );
+}
+function LessonPage({
+  id,
+  data,
+  reload,
+  go,
+  userId,
+  demo = false,
+  onDemoProgress,
+  onDemoNote,
+}: {
+  id: string;
+  data: PortalData;
+  reload: () => Promise<void>;
+  go: (v: View, id?: string) => void;
+  userId: string;
+  demo?: boolean;
+  onDemoProgress?: ((lessonId: string, completed: boolean, seconds: number) => void) | undefined;
+  onDemoNote?: ((lessonId: string, content: string) => void) | undefined;
+}) {
   const lesson = data.lessons.find((l) => l.id === id);
   const module = data.modules.find((m) => m.id === lesson?.module_id);
   const training = data.trainings.find((t) => t.id === module?.training_id);
   const existing = data.progress.find((p) => p.lesson_id === id);
   const [note, setNote] = useState(data.notes.find((n) => n.lesson_id === id)?.content || "");
   const [notice, setNotice] = useState("");
-  if (!lesson || !module || !training) return <Empty title="Aula indisponível" description="A aula não foi liberada para sua conta." />;
+  if (!lesson || !module || !training)
+    return (
+      <Empty title="Aula indisponível" description="A aula não foi liberada para sua conta." />
+    );
   const source = videoSource(lesson.video_url);
-  const siblings = data.lessons.filter((l) => l.module_id === module.id && l.status === "published");
+  const siblings = data.lessons.filter(
+    (l) => l.module_id === module.id && l.status === "published",
+  );
   const index = siblings.findIndex((l) => l.id === id);
+  const previousLesson = index > 0 ? siblings[index - 1] : undefined;
+  const nextLesson = index >= 0 ? siblings[index + 1] : undefined;
   const saveProgress = async (completed: boolean, seconds = existing?.position_seconds || 0) => {
-    if (demo) { onDemoProgress?.(id, completed, seconds); setNotice("Progresso atualizado apenas na demonstração."); return; }
-    const { error } = await supabase.from("lesson_progress").upsert({ lesson_id: id, user_id: userId, completed, completed_at: completed ? new Date().toISOString() : null, position_seconds: Math.floor(seconds), updated_at: new Date().toISOString() });
-    if (error) setNotice(error.message); else { await reload(); setNotice(completed ? "Aula concluída." : "Progresso atualizado."); }
+    if (demo) {
+      onDemoProgress?.(id, completed, seconds);
+      setNotice("Progresso atualizado apenas na demonstração.");
+      return;
+    }
+    const { error } = await supabase.from("lesson_progress").upsert({
+      lesson_id: id,
+      user_id: userId,
+      completed,
+      completed_at: completed ? new Date().toISOString() : null,
+      position_seconds: Math.floor(seconds),
+      updated_at: new Date().toISOString(),
+    });
+    if (error) setNotice(error.message);
+    else {
+      await reload();
+      setNotice(completed ? "Aula concluída." : "Progresso atualizado.");
+    }
   };
-  return <div className="space-y-6"><button className="portal-outline" onClick={() => go("training", training.id)}><ArrowLeft className="size-4" />{training.title}</button><div className="grid xl:grid-cols-[minmax(0,1fr)_290px] gap-6"><div className="min-w-0 space-y-6"><div className="aspect-video bg-black rounded-2xl border overflow-hidden flex items-center justify-center">{source?.kind === "iframe" ? <iframe className="w-full h-full" title={lesson.title} src={source.src} allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowFullScreen /> : source?.kind === "video" ? <video controls className="w-full" src={source.src} onPause={(e) => void saveProgress(!!existing?.completed, e.currentTarget.currentTime)} onLoadedMetadata={(e) => { if (existing?.position_seconds) e.currentTarget.currentTime = existing.position_seconds; }} /> : source?.kind === "external" ? <a className="portal-button" href={source.src} target="_blank" rel="noopener noreferrer">Assistir no player externo <ExternalLink className="size-4" /></a> : <span className="text-muted-foreground">Vídeo não configurado</span>}</div><section className="surface p-6"><p className="text-xs text-primary">{module.title}</p><h1 className="text-2xl font-semibold mt-2">{lesson.title}</h1><p className="text-sm text-muted-foreground mt-3">{lesson.description}</p>{lesson.content && <div className="prose-content mt-5"><ReactMarkdown>{lesson.content}</ReactMarkdown></div>}<div className="flex flex-wrap gap-3 mt-6"><button className="portal-button" onClick={() => void saveProgress(!existing?.completed)}><CheckCircle2 className="size-4" />{existing?.completed ? "Desmarcar conclusão" : "Marcar como concluída"}</button>{index > 0 && <button className="portal-outline" onClick={() => go("lesson", siblings[index - 1].id)}>Aula anterior</button>}{index < siblings.length - 1 && <button className="portal-outline" onClick={() => go("lesson", siblings[index + 1].id)}>Próxima aula →</button>}</div><Alert message={notice} /></section><section className="surface p-6"><h2 className="font-semibold mb-3">Minhas anotações</h2><textarea className="portal-input min-h-36" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Anotações privadas desta aula..." /><button className="portal-button mt-3" onClick={async () => { if (demo) { onDemoNote?.(id, note); setNotice("Anotação salva apenas nesta demonstração."); return; } const { error } = await supabase.from("lesson_notes").upsert({ user_id: userId, lesson_id: id, content: note, updated_at: new Date().toISOString() }); setNotice(error?.message || "Anotação salva."); if (!error) await reload(); }}>Salvar anotação</button></section>{data.materials.filter((m) => m.lesson_id === id).map((m) => <button key={m.id} className="portal-outline mr-3" onClick={() => m.file_path ? void openMaterial(m.file_path).catch((e) => setNotice(String(e))) : safeHttps(m.url) && window.open(m.url!, "_blank", "noopener,noreferrer")}><Download className="size-4" />{m.title}</button>)}</div><aside className="surface p-5 h-fit"><h3 className="font-semibold">Aulas do módulo</h3><p className="text-xs text-muted-foreground mt-2 mb-5">{module.title}</p>{siblings.map((l, i) => <button key={l.id} onClick={() => go("lesson", l.id)} className={"w-full text-left rounded-lg p-3 text-sm flex gap-3 items-center " + (l.id === id ? "bg-primary/10 text-primary" : "hover:bg-accent")}><span className="size-7 bg-muted rounded-lg grid place-content-center">{i + 1}</span><span>{l.title}</span></button>)}</aside></div></div>;
+  return (
+    <div className="space-y-6">
+      <button className="portal-outline" onClick={() => go("training", training.id)}>
+        <ArrowLeft className="size-4" />
+        {training.title}
+      </button>
+      <div className="grid xl:grid-cols-[minmax(0,1fr)_290px] gap-6">
+        <div className="min-w-0 space-y-6">
+          <div className="aspect-video bg-black rounded-2xl border overflow-hidden flex items-center justify-center">
+            {source?.kind === "iframe" ? (
+              <iframe
+                className="w-full h-full"
+                title={lesson.title}
+                src={source.src}
+                allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+                allowFullScreen
+              />
+            ) : source?.kind === "video" ? (
+              <video
+                controls
+                className="w-full"
+                src={source.src}
+                onPause={(e) =>
+                  void saveProgress(!!existing?.completed, e.currentTarget.currentTime)
+                }
+                onLoadedMetadata={(e) => {
+                  if (existing?.position_seconds)
+                    e.currentTarget.currentTime = existing.position_seconds;
+                }}
+              />
+            ) : source?.kind === "external" ? (
+              <a
+                className="portal-button"
+                href={source.src}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Assistir no player externo <ExternalLink className="size-4" />
+              </a>
+            ) : (
+              <span className="text-muted-foreground">Vídeo não configurado</span>
+            )}
+          </div>
+          <section className="surface p-6">
+            <p className="text-xs text-primary">{module.title}</p>
+            <h1 className="text-2xl font-semibold mt-2">{lesson.title}</h1>
+            <p className="text-sm text-muted-foreground mt-3">{lesson.description}</p>
+            {lesson.content && (
+              <div className="prose-content mt-5">
+                <ReactMarkdown>{lesson.content}</ReactMarkdown>
+              </div>
+            )}
+            <div className="flex flex-wrap gap-3 mt-6">
+              <button
+                className="portal-button"
+                onClick={() => void saveProgress(!existing?.completed)}
+              >
+                <CheckCircle2 className="size-4" />
+                {existing?.completed ? "Desmarcar conclusão" : "Marcar como concluída"}
+              </button>
+              {previousLesson && (
+                <button className="portal-outline" onClick={() => go("lesson", previousLesson.id)}>
+                  Aula anterior
+                </button>
+              )}
+              {nextLesson && (
+                <button className="portal-outline" onClick={() => go("lesson", nextLesson.id)}>
+                  Próxima aula →
+                </button>
+              )}
+            </div>
+            <Alert message={notice} />
+          </section>
+          <section className="surface p-6">
+            <h2 className="font-semibold mb-3">Minhas anotações</h2>
+            <textarea
+              className="portal-input min-h-36"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Anotações privadas desta aula..."
+            />
+            <button
+              className="portal-button mt-3"
+              onClick={async () => {
+                if (demo) {
+                  onDemoNote?.(id, note);
+                  setNotice("Anotação salva apenas nesta demonstração.");
+                  return;
+                }
+                const { error } = await supabase.from("lesson_notes").upsert({
+                  user_id: userId,
+                  lesson_id: id,
+                  content: note,
+                  updated_at: new Date().toISOString(),
+                });
+                setNotice(error?.message || "Anotação salva.");
+                if (!error) await reload();
+              }}
+            >
+              Salvar anotação
+            </button>
+          </section>
+          {data.materials
+            .filter((m) => m.lesson_id === id)
+            .map((m) => (
+              <button
+                key={m.id}
+                className="portal-outline mr-3"
+                onClick={() =>
+                  m.file_path
+                    ? void openMaterial(m.file_path).catch((e) => setNotice(String(e)))
+                    : safeHttps(m.url) && window.open(m.url!, "_blank", "noopener,noreferrer")
+                }
+              >
+                <Download className="size-4" />
+                {m.title}
+              </button>
+            ))}
+        </div>
+        <aside className="surface p-5 h-fit">
+          <h3 className="font-semibold">Aulas do módulo</h3>
+          <p className="text-xs text-muted-foreground mt-2 mb-5">{module.title}</p>
+          {siblings.map((l, i) => (
+            <button
+              key={l.id}
+              onClick={() => go("lesson", l.id)}
+              className={
+                "w-full text-left rounded-lg p-3 text-sm flex gap-3 items-center " +
+                (l.id === id ? "bg-primary/10 text-primary" : "hover:bg-accent")
+              }
+            >
+              <span className="size-7 bg-muted rounded-lg grid place-content-center">{i + 1}</span>
+              <span>{l.title}</span>
+            </button>
+          ))}
+        </aside>
+      </div>
+    </div>
+  );
 }

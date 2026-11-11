@@ -29,12 +29,19 @@ describe("Marca do portal", () => {
   });
 });
 
-import { approvalState, APPLICATION_PENDING, PENDING_APPROVAL, REJECTED_APPROVAL } from "@/lib/approval";
+import {
+  approvalState,
+  APPLICATION_PENDING,
+  PENDING_APPROVAL,
+  REJECTED_APPROVAL,
+} from "@/lib/approval";
 
 describe("Solicitações de acesso", () => {
   it("distingue solicitações pendentes por convite ou cadastro", () => {
     expect(approvalState({ status: "suspended", admin_notes: PENDING_APPROVAL })).toBe("pending");
-    expect(approvalState({ status: "suspended", admin_notes: APPLICATION_PENDING })).toBe("pending");
+    expect(approvalState({ status: "suspended", admin_notes: APPLICATION_PENDING })).toBe(
+      "pending",
+    );
   });
   it("reconhece recusas e suspensões", () => {
     expect(approvalState({ status: "suspended", admin_notes: REJECTED_APPROVAL })).toBe("rejected");

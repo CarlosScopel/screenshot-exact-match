@@ -6,7 +6,10 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "A ORDEM" },
-      { name: "description", content: "Ambiente privado de treinamentos, conteúdos e ferramentas da mentoria." },
+      {
+        name: "description",
+        content: "Ambiente privado de treinamentos, conteúdos e ferramentas da mentoria.",
+      },
       { property: "og:title", content: "A ORDEM" },
       { property: "og:description", content: "Área exclusiva de mentorados." },
     ],
