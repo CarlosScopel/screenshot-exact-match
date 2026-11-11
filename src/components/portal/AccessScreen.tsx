@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { LockKeyhole, ArrowRight, LoaderCircle, Mail, ShieldCheck, BookOpen, GraduationCap } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { createFirstAdmin, getSetupState } from "@/lib/admin.functions";
+import { createFirstAdmin, getSetupState, requestMenteeAccess } from "@/lib/admin.functions";
 import { useMedia } from "@/lib/media";
 
 export function AccessScreen({ name, title, subtitle, logo, image, forceRecovery = false, onSuccess }: {
@@ -9,7 +9,7 @@ export function AccessScreen({ name, title, subtitle, logo, image, forceRecovery
 }) {
   const coverUrl = useMedia(image);
   const logoUrl = useMedia(logo);
-  const [mode, setMode] = useState<"login" | "forgot" | "setup" | "recovery">(forceRecovery ? "recovery" : "login");
+  const [mode, setMode] = useState<"login" | "forgot" | "setup" | "recovery" | "request">(forceRecovery ? "recovery" : "login");
   const [checking, setChecking] = useState(true);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
@@ -36,6 +36,9 @@ export function AccessScreen({ name, title, subtitle, logo, image, forceRecovery
         const { error } = await supabase.auth.signInWithPassword({ email: form.email, password: form.password });
         if (error) throw error;
         onSuccess();
+      } else if (mode === "request") {
+        await requestMenteeAccess({ data: { name: form.name, email: form.email } });
+        setFeedback("Solicitação recebida! Aguarde a aprovação do administrador. Se aprovada, você receberá um e-mail para definir sua senha.");
       } else if (mode === "forgot") {
         const { error } = await supabase.auth.resetPasswordForEmail(form.email, {
           redirectTo: window.location.origin,
@@ -76,20 +79,21 @@ export function AccessScreen({ name, title, subtitle, logo, image, forceRecovery
         <div className="w-full max-w-md">
           <div className="lg:hidden flex items-center gap-2 text-lg font-semibold mb-12"><GraduationCap className="text-blue-500" />{name}</div>
           <div className="size-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary mb-7"><LockKeyhole className="size-6" /></div>
-          <h2 className="text-3xl font-semibold mb-2">{mode === "setup" ? "Configuração inicial" : mode === "forgot" ? "Recuperar acesso" : mode === "recovery" ? "Definir senha" : title || "Bem-vindo de volta"}</h2>
-          <p className="text-muted-foreground mb-9">{mode === "setup" ? "Crie a primeira conta administrativa da plataforma." : mode === "forgot" ? "Enviaremos um link para seu e-mail cadastrado." : mode === "recovery" ? "Escolha uma senha segura para sua conta." : subtitle || "Acesse seu ambiente exclusivo de mentoria."}</p>
+          <h2 className="text-3xl font-semibold mb-2">{mode === "setup" ? "Configuração inicial" : mode === "forgot" ? "Recuperar acesso" : mode === "recovery" ? "Definir senha" : mode === "request" ? "Solicite sua entrada" : title || "Bem-vindo de volta"}</h2>
+          <p className="text-muted-foreground mb-9">{mode === "setup" ? "Crie a primeira conta administrativa da plataforma." : mode === "forgot" ? "Enviaremos um link para seu e-mail cadastrado." : mode === "recovery" ? "Escolha uma senha segura para sua conta." : mode === "request" ? "Informe seus dados. Sua entrada em A ORDEM depende de aprovação." : subtitle || "Acesse seu ambiente exclusivo de mentoria."}</p>
           {checking ? <div className="text-muted-foreground flex gap-2 items-center"><LoaderCircle className="animate-spin size-4" /> Verificando acesso...</div> : (
           <form onSubmit={submit} className="space-y-5">
-            {mode === "setup" && <label className="block text-sm font-medium">Seu nome<input className="portal-input mt-2" required minLength={2} value={form.name} onChange={(e) => edit("name", e.target.value)} placeholder="Nome completo" /></label>}
-            {(mode === "login" || mode === "setup" || mode === "forgot") && <label className="block text-sm font-medium">E-mail<div className="relative mt-2"><Mail className="absolute left-3.5 top-3.5 size-4 text-muted-foreground" /><input className="portal-input pl-11" type="email" autoComplete="email" required value={form.email} onChange={(e) => edit("email", e.target.value)} placeholder="voce@exemplo.com" /></div></label>}
+            {(mode === "setup" || mode === "request") && <label className="block text-sm font-medium">Seu nome<input className="portal-input mt-2" required minLength={2} value={form.name} onChange={(e) => edit("name", e.target.value)} placeholder="Nome completo" /></label>}
+            {(mode === "login" || mode === "setup" || mode === "forgot" || mode === "request") && <label className="block text-sm font-medium">E-mail<div className="relative mt-2"><Mail className="absolute left-3.5 top-3.5 size-4 text-muted-foreground" /><input className="portal-input pl-11" type="email" autoComplete="email" required value={form.email} onChange={(e) => edit("email", e.target.value)} placeholder="voce@exemplo.com" /></div></label>}
             {(mode === "login" || mode === "setup" || mode === "recovery") && <label className="block text-sm font-medium">Senha<input className="portal-input mt-2" type="password" minLength={mode === "login" ? 1 : 8} required value={form.password} onChange={(e) => edit("password", e.target.value)} placeholder="Sua senha" autoComplete={mode === "login" ? "current-password" : "new-password"} /></label>}
             {mode === "recovery" && <label className="block text-sm font-medium">Confirmar senha<input className="portal-input mt-2" type="password" minLength={8} required value={form.confirmation} onChange={(e) => edit("confirmation", e.target.value)} placeholder="Repita a senha" /></label>}
             {feedback && <div role="status" className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm">{feedback}</div>}
-            <button disabled={busy} className="portal-button w-full justify-center py-3">{busy && <LoaderCircle className="size-4 animate-spin" />}{mode === "setup" ? "Criar minha conta" : mode === "forgot" ? "Enviar instruções" : mode === "recovery" ? "Salvar nova senha" : "Entrar na plataforma"}<ArrowRight className="size-4" /></button>
+            <button disabled={busy} className="portal-button w-full justify-center py-3">{busy && <LoaderCircle className="size-4 animate-spin" />}{mode === "setup" ? "Criar minha conta" : mode === "forgot" ? "Enviar instruções" : mode === "recovery" ? "Salvar nova senha" : mode === "request" ? "Solicitar aprovação" : "Entrar na plataforma"}<ArrowRight className="size-4" /></button>
             {mode === "login" && <button type="button" className="text-sm text-primary hover:underline" onClick={() => { setMode("forgot"); setFeedback(""); }}>Esqueceu sua senha?</button>}
-            {mode === "forgot" && <button type="button" className="text-sm text-primary hover:underline" onClick={() => { setMode("login"); setFeedback(""); }}>Voltar ao login</button>}
+            {mode === "login" && <button type="button" className="block text-sm text-primary hover:underline" onClick={() => { setMode("request"); setFeedback(""); }}>Quero fazer parte de A ORDEM</button>}
+            {(mode === "forgot" || mode === "request") && <button type="button" className="text-sm text-primary hover:underline" onClick={() => { setMode("login"); setFeedback(""); }}>Voltar ao login</button>}
           </form>)}
-          <p className="text-center text-xs text-muted-foreground mt-12">O cadastro é exclusivo para mentorados convidados.</p>
+          <p className="text-center text-xs text-muted-foreground mt-12">A entrada é sujeita à aprovação do administrador.</p>
         </div>
       </div>
     </div>

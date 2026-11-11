@@ -108,7 +108,7 @@ export function useAuth() {
 }
 
 export function isMemberBlocked(p: Profile | null) {
-  if (!p) return false;
+  if (!p) return true;
   if (p.status === "suspended") return true;
   return !!p.access_expires_at && new Date(p.access_expires_at) <= new Date();
 }

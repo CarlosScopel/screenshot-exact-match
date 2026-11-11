@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, BookOpen, CheckCircle2, ChevronRight, Download, ExternalLink, FileText, GraduationCap, LayoutDashboard, Library, LoaderCircle, LogOut, Megaphone, Menu, Plus, Settings, Shield, Sparkles, Users, Wrench, X, Sun, Moon } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { AuthProvider, isMemberBlocked, useAuth } from "@/lib/auth";
+import { approvalState } from "@/lib/approval";
 import { supabase } from "@/integrations/supabase/client";
 import { AccessScreen } from "./AccessScreen";
 import { AdminPage } from "./AdminPage";
@@ -60,7 +61,7 @@ function Portal() {
   const recoveryType = typeof window !== "undefined" ? new URLSearchParams(window.location.hash.slice(1)).get("type") || new URLSearchParams(window.location.search).get("type") : null;
   if (session && (requiresPasswordSetup || recoveryType === "recovery" || recoveryType === "invite")) return <AccessScreen forceRecovery name={brandName} logo={settings?.logo_url} image={settings?.login_image_url} onSuccess={() => { clearPasswordSetup(); void refresh(); }} />;
   if (!session) return <AccessScreen name={brandName} title={settings?.login_title} subtitle={settings?.login_subtitle} logo={settings?.logo_url} image={settings?.login_image_url} onSuccess={() => void refresh()} />;
-  if (isMemberBlocked(profile) && !isAdmin) return <div className="min-h-screen grid place-content-center text-center p-6"><Shield className="size-10 mx-auto text-destructive mb-4" /><h1 className="text-2xl font-semibold">Acesso indisponível</h1><p className="text-muted-foreground mt-2">Sua conta está suspensa ou o acesso expirou. Fale com o suporte.</p><button className="portal-outline mx-auto mt-6" onClick={() => void supabase.auth.signOut()}>Sair</button></div>;
+  if (isMemberBlocked(profile) && !isAdmin) return <div className="min-h-screen grid place-content-center text-center p-6"><Shield className="size-10 mx-auto text-destructive mb-4" /><h1 className="text-2xl font-semibold">Acesso indisponível</h1><p className="text-muted-foreground mt-2 max-w-md">{!profile ? "Não foi possível verificar sua autorização de acesso. Tente novamente mais tarde." : approvalState(profile) === "pending" ? "Sua solicitação foi recebida e está aguardando aprovação do administrador de A ORDEM. Você ainda não pode acessar os conteúdos." : approvalState(profile) === "rejected" ? "Sua solicitação de acesso foi recusada pelo administrador." : "Sua conta está suspensa ou o acesso expirou. Fale com o suporte."}</p><button className="portal-outline mx-auto mt-6" onClick={() => void supabase.auth.signOut()}>Sair</button></div>;
   const menu = adminMode && isAdmin ? navAdmin : navStudent;
   const current = menu.find((x) => x.id === page)?.name || (page === "lesson" ? "Aula" : "Treinamento");
   const name = brandName;
