@@ -2,7 +2,7 @@ name: Prepare checked release
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/prepare-release.yml', 'scripts/prepare-release.py']
+    paths: ['.github/workflows/prepare-release.yml', 'scripts/prepare-release.py', 'scripts/fix-*.py', 'src/test/admin-*.test.*']
   workflow_dispatch:
 permissions:
   contents: write
@@ -29,6 +29,7 @@ jobs:
       - name: Apply reviewed fixes and format handwritten files only
         run: |
           mkdir -p qa-reports
+          python scripts/fix-test-files.py
           python scripts/prepare-release.py
           bunx --no-install prettier --write eslint.config.js scripts/validate-browser.mjs src/components/portal/*.tsx src/lib/admin.functions.ts src/lib/approval.ts src/lib/auth.tsx src/lib/demo.ts src/lib/media.ts src/lib/owner.functions.ts src/lib/owner.server.ts src/lib/portal.ts src/routes/__root.tsx src/routes/index.tsx src/test/owner-access.test.ts src/test/portal-utils.test.ts src/test/admin-flows.test.ts src/test/admin-ui.test.tsx
           git diff --check
