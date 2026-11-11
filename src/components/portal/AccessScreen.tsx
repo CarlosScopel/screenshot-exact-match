@@ -4,12 +4,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { createFirstAdmin, getSetupState } from "@/lib/admin.functions";
 import { useMedia } from "@/lib/media";
 
-export function AccessScreen({ name, title, subtitle, logo, image, onSuccess }: {
-  name: string; title?: string; subtitle?: string; logo?: string | null; image?: string | null; onSuccess: () => void;
+export function AccessScreen({ name, title, subtitle, logo, image, forceRecovery = false, onSuccess }: {
+  name: string; title?: string; subtitle?: string; logo?: string | null; image?: string | null; forceRecovery?: boolean; onSuccess: () => void;
 }) {
   const coverUrl = useMedia(image);
   const logoUrl = useMedia(logo);
-  const [mode, setMode] = useState<"login" | "forgot" | "setup" | "recovery">("login");
+  const [mode, setMode] = useState<"login" | "forgot" | "setup" | "recovery">(forceRecovery ? "recovery" : "login");
   const [checking, setChecking] = useState(true);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
@@ -19,7 +19,7 @@ export function AccessScreen({ name, title, subtitle, logo, image, onSuccess }: 
     const token = typeof window !== "undefined" ? (new URLSearchParams(window.location.search).get("type") || new URLSearchParams(window.location.hash.slice(1)).get("type")) : null;
     if (token === "invite" || token === "recovery") setMode("recovery");
     getSetupState().then((state) => {
-      if (alive && !state.hasAdmin && token !== "recovery" && token !== "invite") setMode("setup");
+      if (alive && !state.hasAdmin && !forceRecovery && token !== "recovery" && token !== "invite") setMode("setup");
     }).catch(() => {
       if (alive) setFeedback("Não foi possível verificar a configuração do servidor.");
     }).finally(() => { if (alive) setChecking(false); });

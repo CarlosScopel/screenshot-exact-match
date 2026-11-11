@@ -15,6 +15,8 @@ interface AuthCtx {
   settings: Settings | null;
   refresh: () => Promise<void>;
   refreshSettings: () => Promise<void>;
+  requiresPasswordSetup: boolean;
+  clearPasswordSetup: () => void;
 }
 
 const Ctx = createContext<AuthCtx | null>(null);
@@ -30,6 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [roles, setRoles] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [requiresPasswordSetup, setRequiresPasswordSetup] = useState(false);
 
   const loadUser = useCallback(async (s: Session | null) => {
     if (!s) {
@@ -52,9 +55,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    const linkType = new URLSearchParams(window.location.hash.slice(1)).get("type") || new URLSearchParams(window.location.search).get("type");
+    if (linkType === "invite" || linkType === "recovery") setRequiresPasswordSetup(true);
     refreshSettings();
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
       setSession(s);
+      if (event === "PASSWORD_RECOVERY") setRequiresPasswordSetup(true);
+      if (event === "SIGNED_OUT") setRequiresPasswordSetup(false);
       if (event === "SIGNED_IN" || event === "USER_UPDATED" || event === "SIGNED_OUT") {
         setTimeout(() => loadUser(s), 0);
       }
@@ -85,6 +92,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         settings,
         refresh: () => loadUser(session),
         refreshSettings,
+        requiresPasswordSetup,
+        clearPasswordSetup: () => setRequiresPasswordSetup(false),
       }}
     >
       {children}

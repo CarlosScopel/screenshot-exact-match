@@ -29,7 +29,7 @@ function MediaCover({ src }: { src?: string | null }) { const resolved = useMedi
 
 export function PortalApp() { return <AuthProvider><Portal /></AuthProvider>; }
 function Portal() {
-  const { session, profile, isAdmin, loading, settings, refresh, refreshSettings } = useAuth();
+  const { session, profile, isAdmin, loading, settings, refresh, refreshSettings, requiresPasswordSetup, clearPasswordSetup } = useAuth();
   const [data, setData] = useState<PortalData>(emptyData);
   const [page, setPage] = useState<View>("home");
   const [id, setId] = useState("");
@@ -57,7 +57,7 @@ function Portal() {
   useEffect(() => { if (isAdmin && !initializedAdmin.current) { initializedAdmin.current = true; setAdminMode(true); setPage("admin"); } }, [isAdmin]);
   if (loading) return <div className="min-h-screen flex items-center justify-center text-muted-foreground"><LoaderCircle className="animate-spin mr-2" />Carregando...</div>;
   const recoveryType = typeof window !== "undefined" ? new URLSearchParams(window.location.hash.slice(1)).get("type") || new URLSearchParams(window.location.search).get("type") : null;
-  if (session && (recoveryType === "recovery" || recoveryType === "invite")) return <AccessScreen name={settings?.platform_name || "Portal da Mentoria"} logo={settings?.logo_url} image={settings?.login_image_url} onSuccess={() => void refresh()} />;
+  if (session && (requiresPasswordSetup || recoveryType === "recovery" || recoveryType === "invite")) return <AccessScreen forceRecovery name={settings?.platform_name || "Portal da Mentoria"} logo={settings?.logo_url} image={settings?.login_image_url} onSuccess={() => { clearPasswordSetup(); void refresh(); }} />;
   if (!session) return <AccessScreen name={settings?.platform_name || "Portal da Mentoria"} title={settings?.login_title} subtitle={settings?.login_subtitle} logo={settings?.logo_url} image={settings?.login_image_url} onSuccess={() => void refresh()} />;
   if (isMemberBlocked(profile) && !isAdmin) return <div className="min-h-screen grid place-content-center text-center p-6"><Shield className="size-10 mx-auto text-destructive mb-4" /><h1 className="text-2xl font-semibold">Acesso indisponível</h1><p className="text-muted-foreground mt-2">Sua conta está suspensa ou o acesso expirou. Fale com o suporte.</p><button className="portal-outline mx-auto mt-6" onClick={() => void supabase.auth.signOut()}>Sair</button></div>;
   const menu = adminMode && isAdmin ? navAdmin : navStudent;
