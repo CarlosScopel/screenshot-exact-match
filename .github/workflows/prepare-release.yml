@@ -1,0 +1,83 @@
+name: Prepare checked release
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/prepare-release.yml', 'scripts/prepare-release.py']
+  workflow_dispatch:
+permissions:
+  contents: write
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: prepare-ordem-release
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Install unchanged locked dependencies
+        run: bun install --frozen-lockfile
+      - name: Apply reviewed fixes and format handwritten files only
+        run: |
+          mkdir -p qa-reports
+          python scripts/prepare-release.py
+          bunx --no-install prettier --write eslint.config.js scripts/validate-browser.mjs src/components/portal/*.tsx src/lib/admin.functions.ts src/lib/approval.ts src/lib/auth.tsx src/lib/demo.ts src/lib/media.ts src/lib/owner.functions.ts src/lib/owner.server.ts src/lib/portal.ts src/routes/__root.tsx src/routes/index.tsx src/test/owner-access.test.ts src/test/portal-utils.test.ts src/test/admin-flows.test.ts src/test/admin-ui.test.tsx
+          git diff --check
+          git diff --stat | tee qa-reports/diff-stat.txt
+          git diff > qa-reports/release.patch
+      - name: Typecheck
+        run: bunx --no-install tsc --noEmit 2>&1 | tee qa-reports/typescript.log
+      - name: Server and UI tests
+        run: bun run test --reporter=default --reporter=json --outputFile=qa-reports/vitest.json
+      - name: Lint without suppressing app errors
+        run: bun run lint 2>&1 | tee qa-reports/lint.log
+      - name: Production build
+        run: bun run build 2>&1 | tee qa-reports/build.log
+      - name: Isolated browser tooling
+        run: |
+          npm install --prefix "$RUNNER_TEMP/portal-browser" --no-save --package-lock=false playwright wrangler
+          node "$RUNNER_TEMP/portal-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Desktop and mobile production build checks
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+        run: |
+          node --env-file=.env --input-type=module -e 'import fs from "node:fs"; fs.writeFileSync(".output/server/.dev.vars",`SUPABASE_URL=${JSON.stringify(process.env.VITE_SUPABASE_URL)}\nSUPABASE_PUBLISHABLE_KEY=${JSON.stringify(process.env.VITE_SUPABASE_PUBLISHABLE_KEY)}\n`);'
+          node "$RUNNER_TEMP/portal-browser/node_modules/wrangler/bin/wrangler.js" dev --config .output/server/wrangler.json --local --ip 127.0.0.1 --port 4173 > qa-reports/server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/portal-browser/node_modules/playwright/index.mjs" node --env-file=.env scripts/validate-browser.mjs
+      - name: Commit tested changes with a safe fast-forward only
+        run: |
+          python - <<'PY'
+          import subprocess
+          allowed = {'.github/workflows/verify.yml','eslint.config.js','scripts/validate-browser.mjs','src/components/portal/AccessScreen.tsx','src/components/portal/AdminPage.tsx','src/components/portal/Portal.tsx','src/lib/admin.functions.ts','src/lib/approval.ts','src/lib/auth.tsx','src/lib/demo.ts','src/lib/media.ts','src/lib/owner.functions.ts','src/lib/owner.server.ts','src/lib/portal.ts','src/routes/__root.tsx','src/routes/index.tsx','src/test/owner-access.test.ts','src/test/portal-utils.test.ts','src/test/admin-flows.test.ts','src/test/admin-ui.test.tsx'}
+          paths = set(subprocess.check_output(['git','diff','--name-only'], text=True).splitlines())
+          assert paths and paths <= allowed, f'Unexpected changes: {paths - allowed}'
+          subprocess.run(['git','add','--',*sorted(paths)],check=True)
+          PY
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: finalize tested portal error handling and release lint'
+          git push origin HEAD:main
+          git rev-parse HEAD > qa-reports/final-commit.txt
+      - name: Retain validation evidence only
+        if: always()
+        run: |
+          mkdir -p qa-reports
+          tar -czf qa-reports/source-snapshot.tar.gz src scripts/validate-browser.mjs scripts/validate-access.sql package.json bun.lock tsconfig.json vite.config.ts vitest.config.ts eslint.config.js AGENTS.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-validation
+          path: qa-reports/
+          retention-days: 7
