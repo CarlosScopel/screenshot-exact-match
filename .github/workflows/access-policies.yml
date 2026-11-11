@@ -1,0 +1,46 @@
+name: Access policy integration tests
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: access-policies-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  access-policies:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: isolated-test-only
+          POSTGRES_DB: a_ordem_qa
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test original policies against isolated users and content
+        env:
+          PGPASSWORD: isolated-test-only
+        run: |
+          mkdir -p qa-reports
+          psql -h 127.0.0.1 -U postgres -d a_ordem_qa -v ON_ERROR_STOP=1 -f scripts/validate-access.sql 2>&1 | tee qa-reports/access-policies.log
+      - name: Upload policy evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: access-policy-evidence
+          path: qa-reports/
+          retention-days: 7
