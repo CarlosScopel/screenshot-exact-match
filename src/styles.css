@@ -171,3 +171,37 @@
 .prose-content a { color: var(--primary); text-decoration: underline; text-underline-offset: 3px; }
 .prose-content strong { color: var(--foreground); }
 .prose-content code { font-family: var(--font-mono); font-size: .85em; background: var(--muted); padding: .1em .35em; border-radius: 4px; }
+
+/* Portal-specific form and action primitives. The existing design tokens remain authoritative. */
+.portal-input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--foreground);
+  padding: .75rem .95rem;
+  border-radius: .75rem;
+  outline: none;
+  transition: border-color .18s, box-shadow .18s;
+}
+.portal-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 18%, transparent); }
+.portal-input::placeholder { color: var(--muted-foreground); }
+.portal-button, .portal-outline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .55rem;
+  padding: .7rem 1rem;
+  font-size: .875rem;
+  font-weight: 600;
+  line-height: 1.35;
+  border-radius: .7rem;
+  transition: background .18s, transform .18s, border-color .18s;
+  cursor: pointer;
+}
+.portal-button { background: var(--primary); color: var(--primary-foreground); }
+.portal-button:hover:not(:disabled) { filter: brightness(1.08); }
+.portal-outline { border: 1px solid var(--border); background: var(--card); color: var(--foreground); }
+.portal-outline:hover:not(:disabled) { background: var(--accent); border-color: var(--primary); }
+.portal-button:disabled, .portal-outline:disabled { opacity: .5; cursor: not-allowed; }
+.portal-button:focus-visible, .portal-outline:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
