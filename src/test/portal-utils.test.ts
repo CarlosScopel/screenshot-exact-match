@@ -28,3 +28,19 @@ describe("Marca do portal", () => {
     expect(displayPlatformName("Minha Comunidade")).toBe("Minha Comunidade");
   });
 });
+
+import { approvalState, APPLICATION_PENDING, PENDING_APPROVAL, REJECTED_APPROVAL } from "@/lib/approval";
+
+describe("Solicitações de acesso", () => {
+  it("distingue solicitações pendentes por convite ou cadastro", () => {
+    expect(approvalState({ status: "suspended", admin_notes: PENDING_APPROVAL })).toBe("pending");
+    expect(approvalState({ status: "suspended", admin_notes: APPLICATION_PENDING })).toBe("pending");
+  });
+  it("reconhece recusas e suspensões", () => {
+    expect(approvalState({ status: "suspended", admin_notes: REJECTED_APPROVAL })).toBe("rejected");
+    expect(approvalState({ status: "suspended", admin_notes: null })).toBe("suspended");
+  });
+  it("reconhece aprovação apenas se a conta estiver ativa", () => {
+    expect(approvalState({ status: "active", admin_notes: null })).toBe("active");
+  });
+});
