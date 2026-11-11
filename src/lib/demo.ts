@@ -1,0 +1,54 @@
+import type { PortalData } from "@/lib/portal";
+
+export const DEMO_EMAIL = "mentorado@demo.aordem";
+export const DEMO_PASSWORD = "OrdemDemo2026!";
+export const DEMO_USER_ID = "demo-mentorado";
+export const DEMO_MEMBER_NAME = "Alex Mentorando";
+
+/**
+ * Fully local preview data. None of these IDs represent real accounts or rows.
+ * Never use these objects in an authenticated Supabase query.
+ */
+export function createDemoPortalData(): PortalData {
+  const now = new Date().toISOString();
+  return {
+    trainings: [
+      { id: "demo-training-1", title: "Fundamentos da Estratégia", description: "Construa a base para operar com clareza, execução e visão de longo prazo.", cover_url: null, status: "published", position: 0, published_at: now, created_at: now },
+      { id: "demo-training-2", title: "Acelerando Resultados", description: "Do planejamento à prática: os processos para evoluir suas campanhas.", cover_url: null, status: "published", position: 1, published_at: now, created_at: now },
+      { id: "demo-training-3", title: "Mentalidade de Elite", description: "Rotina, decisões e consistência para construir sua jornada.", cover_url: null, status: "published", position: 2, published_at: now, created_at: now },
+    ],
+    modules: [
+      { id: "demo-module-1", training_id: "demo-training-1", title: "Módulo 01 · Primeiros Passos", description: "Conheça o ambiente e organize seu plano.", status: "published", position: 0, created_at: now },
+      { id: "demo-module-2", training_id: "demo-training-1", title: "Módulo 02 · Estrutura", description: "Organize processos para executar.", status: "published", position: 1, created_at: now },
+      { id: "demo-module-3", training_id: "demo-training-2", title: "Módulo 01 · Planejamento", description: "Entenda o processo de criação de campanhas.", status: "published", position: 0, created_at: now },
+      { id: "demo-module-4", training_id: "demo-training-3", title: "Módulo 01 · Evolução", description: "Desenvolva sua visão de crescimento.", status: "published", position: 0, created_at: now },
+    ],
+    lessons: [
+      { id: "demo-lesson-1", module_id: "demo-module-1", title: "Bem-vindo à A ORDEM", description: "Uma apresentação do ambiente exclusivo e da jornada de aprendizado.", content: "### Seu espaço de evolução\n\nExplore as aulas, marque seu progresso e organize suas anotações. **Este conteúdo é apenas demonstrativo.**", video_url: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4", thumbnail_url: null, duration_minutes: 6, status: "published", available_at: null, position: 0, created_at: now },
+      { id: "demo-lesson-2", module_id: "demo-module-1", title: "Organizando sua Jornada", description: "Como aproveitar os módulos e acompanhar sua evolução.", content: "### Plano de aprendizado\n\n1. Assista às aulas na ordem.\n2. Registre suas anotações.\n3. Marque cada etapa concluída.", video_url: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4", thumbnail_url: null, duration_minutes: 14, status: "published", available_at: null, position: 1, created_at: now },
+      { id: "demo-lesson-3", module_id: "demo-module-2", title: "Estrutura de uma Operação", description: "Os pilares fundamentais de uma operação organizada.", content: "### Organização\n\nConheça o processo e os próximos passos desta jornada.", video_url: null, thumbnail_url: null, duration_minutes: 25, status: "published", available_at: null, position: 0, created_at: now },
+      { id: "demo-lesson-4", module_id: "demo-module-3", title: "Planejando Campanhas", description: "Um exemplo de planejamento prático.", content: "### Planejamento\n\nDefina objetivos, acompanhe indicadores e revise seus resultados.", video_url: null, thumbnail_url: null, duration_minutes: 32, status: "published", available_at: null, position: 0, created_at: now },
+      { id: "demo-lesson-5", module_id: "demo-module-4", title: "A Consistência como Estratégia", description: "O poder de uma execução consistente.", content: "### Evolução contínua\n\nPequenos avanços sustentados formam grandes resultados.", video_url: null, thumbnail_url: null, duration_minutes: 18, status: "published", available_at: null, position: 0, created_at: now },
+    ],
+    materials: [],
+    progress: [
+      { user_id: DEMO_USER_ID, lesson_id: "demo-lesson-1", completed: true, completed_at: now, position_seconds: 0, updated_at: now },
+      { user_id: DEMO_USER_ID, lesson_id: "demo-lesson-2", completed: false, completed_at: null, position_seconds: 30, updated_at: now },
+    ],
+    notes: [],
+    library: [
+      { id: "demo-library-1", title: "Checklist de Boas-Vindas", description: "Passos para iniciar sua jornada dentro da comunidade.", category_id: "demo-category-1", kind: "article", cover_url: null, tags: ["início"], file_path: null, file_name: null, url: null, body: "## Checklist inicial\n\n- Explore os treinamentos.\n- Conclua a primeira aula.\n- Crie sua primeira anotação.\n\n*Material demonstrativo.*", cohort_ids: [], status: "published", published_at: now, created_at: now },
+      { id: "demo-library-2", title: "Guia de Organização", description: "Boas práticas para acompanhar seus estudos.", category_id: "demo-category-1", kind: "article", cover_url: null, tags: ["planejamento"], file_path: null, file_name: null, url: null, body: "## Organize seus estudos\n\nReserve um horário semanal e acompanhe seu progresso.\n\n*Material demonstrativo.*", cohort_ids: [], status: "published", published_at: now, created_at: now },
+    ],
+    categories: [{ id: "demo-category-1", name: "Guias e Materiais", position: 0, created_at: now }],
+    tools: [
+      { id: "demo-tool-1", name: "Laboratório de Criativos", description: "Um espaço reservado para ferramentas exclusivas.", icon: "Sparkles", category: "Marketing", status: "soon", kind: "internal", route: null, url: null, cohort_ids: [], enabled: true, position: 0, created_at: now },
+      { id: "demo-tool-2", name: "Análise de Campanhas", description: "Em preparação para os membros.", icon: "BarChart3", category: "Marketing", status: "soon", kind: "internal", route: null, url: null, cohort_ids: [], enabled: true, position: 1, created_at: now },
+    ],
+    announcements: [
+      { id: "demo-announcement-1", title: "Bem-vindo à A ORDEM", body: "Este é um comunicado de exemplo para mostrar como seus mentorados verão as novidades da plataforma.", pinned: true, cohort_ids: [], published_at: now, created_at: now },
+      { id: "demo-announcement-2", title: "Novos conteúdos em breve", body: "Acompanhe as atualizações dos treinamentos e ferramentas exclusivas.", pinned: false, cohort_ids: [], published_at: now, created_at: now },
+    ],
+    cohorts: [], cohortMembers: [], trainingCohorts: [], trainingGrants: [], profiles: [],
+  };
+}

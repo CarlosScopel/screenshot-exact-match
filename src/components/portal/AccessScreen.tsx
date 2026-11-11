@@ -3,9 +3,10 @@ import { LockKeyhole, ArrowRight, LoaderCircle, Mail, ShieldCheck, BookOpen, Gra
 import { supabase } from "@/integrations/supabase/client";
 import { createFirstAdmin, getSetupState, requestMenteeAccess } from "@/lib/admin.functions";
 import { useMedia } from "@/lib/media";
+import { DEMO_EMAIL, DEMO_PASSWORD } from "@/lib/demo";
 
-export function AccessScreen({ name, title, subtitle, logo, image, forceRecovery = false, onSuccess }: {
-  name: string; title?: string; subtitle?: string; logo?: string | null; image?: string | null; forceRecovery?: boolean; onSuccess: () => void;
+export function AccessScreen({ name, title, subtitle, logo, image, forceRecovery = false, onSuccess, onDemo }: {
+  name: string; title?: string; subtitle?: string; logo?: string | null; image?: string | null; forceRecovery?: boolean; onSuccess: () => void; onDemo?: () => void;
 }) {
   const coverUrl = useMedia(image);
   const logoUrl = useMedia(logo);
@@ -51,6 +52,9 @@ export function AccessScreen({ name, title, subtitle, logo, image, forceRecovery
         if (error) throw error;
         window.history.replaceState({}, "", window.location.pathname);
         onSuccess();
+      } else if (onDemo && form.email.trim().toLowerCase() === DEMO_EMAIL && form.password === DEMO_PASSWORD) {
+        // Demonstration does not authenticate, create a session, or query private data.
+        onDemo();
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email: form.email, password: form.password });
         if (error) throw error;
@@ -90,6 +94,8 @@ export function AccessScreen({ name, title, subtitle, logo, image, forceRecovery
             {feedback && <div role="status" className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm">{feedback}</div>}
             <button disabled={busy} className="portal-button w-full justify-center py-3">{busy && <LoaderCircle className="size-4 animate-spin" />}{mode === "setup" ? "Criar minha conta" : mode === "forgot" ? "Enviar instruções" : mode === "recovery" ? "Salvar nova senha" : mode === "request" ? "Solicitar aprovação" : "Entrar na plataforma"}<ArrowRight className="size-4" /></button>
             {mode === "login" && <button type="button" className="text-sm text-primary hover:underline" onClick={() => { setMode("forgot"); setFeedback(""); }}>Esqueceu sua senha?</button>}
+            {mode === "setup" && onDemo && <button type="button" className="portal-outline w-full" onClick={() => { setMode("login"); setFeedback(""); }}>Visualizar como mentorado de teste</button>}
+            {mode === "login" && onDemo && <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-2"><p className="text-sm font-semibold">Visualizar como mentorado</p><p className="text-xs text-muted-foreground">Acesso de demonstração, com conteúdos fictícios e sem acesso ao banco real.</p><button type="button" className="portal-outline w-full" onClick={() => { setForm((f) => ({ ...f, email: DEMO_EMAIL, password: DEMO_PASSWORD })); setFeedback(""); }}>Preencher login de teste</button></div>}
             {mode === "login" && <button type="button" className="block text-sm text-primary hover:underline" onClick={() => { setMode("request"); setFeedback(""); }}>Quero fazer parte de A ORDEM</button>}
             {(mode === "forgot" || mode === "request") && <button type="button" className="text-sm text-primary hover:underline" onClick={() => { setMode("login"); setFeedback(""); }}>Voltar ao login</button>}
           </form>)}
