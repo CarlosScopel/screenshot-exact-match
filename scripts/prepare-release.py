@@ -89,4 +89,5 @@ s = p.read_text()
 assert 'defaults:' not in s
 s = s.replace('permissions:\n  contents: read', 'defaults:\n  run:\n    shell: bash\n\npermissions:\n  contents: read')
 p.write_text(s)
+exec((root / 'scripts/fix-strict-types.py').read_text())
 print('Applied scoped release fixes; owner grants, database migrations and dependencies unchanged.')
