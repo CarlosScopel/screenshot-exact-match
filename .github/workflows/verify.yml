@@ -45,11 +45,18 @@ jobs:
         id: browser-tooling
         if: always() && steps.build.outcome == 'success'
         run: |
-          npm install --prefix "$RUNNER_TEMP/portal-browser" --no-save --package-lock=false playwright
+          npm install --prefix "$RUNNER_TEMP/portal-browser" --no-save --package-lock=false playwright wrangler
           node "$RUNNER_TEMP/portal-browser/node_modules/playwright/cli.js" install --with-deps chromium
-      - name: Desktop and mobile browser checks
+      - name: Desktop and mobile checks on Cloudflare runtime
         if: always() && steps.browser-tooling.outcome == 'success'
-        run: PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/portal-browser/node_modules/playwright/index.mjs" node --env-file=.env scripts/validate-browser.mjs
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+        run: |
+          node --env-file=.env --input-type=module -e 'import fs from "node:fs"; fs.writeFileSync(".output/server/.dev.vars",`SUPABASE_URL=${JSON.stringify(process.env.VITE_SUPABASE_URL)}\nSUPABASE_PUBLISHABLE_KEY=${JSON.stringify(process.env.VITE_SUPABASE_PUBLISHABLE_KEY)}\n`);'
+          node "$RUNNER_TEMP/portal-browser/node_modules/wrangler/bin/wrangler.js" dev --config .output/server/wrangler.json --local --ip 127.0.0.1 --port 4173 > qa-reports/server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/portal-browser/node_modules/playwright/index.mjs" node --env-file=.env scripts/validate-browser.mjs
       - name: Lint report (formatting kept separate in evidence)
         if: always() && steps.install.outcome == 'success'
         run: |
