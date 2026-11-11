@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { safeHttps, videoSource } from "@/lib/portal";
+import { displayPlatformName, safeHttps, videoSource } from "@/lib/portal";
 
 describe("Validação de URLs de conteúdo", () => {
   it("não permite URLs com protocolos inseguros", () => {
@@ -16,5 +16,15 @@ describe("Validação de URLs de conteúdo", () => {
       kind: "iframe",
       src: "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
     });
+  });
+});
+
+describe("Marca do portal", () => {
+  it("exibe A ORDEM no lugar do nome inicial do template", () => {
+    expect(displayPlatformName("Portal da Mentoria")).toBe("A ORDEM");
+    expect(displayPlatformName(null)).toBe("A ORDEM");
+  });
+  it("preserva nomes personalizados pelo administrador", () => {
+    expect(displayPlatformName("Minha Comunidade")).toBe("Minha Comunidade");
   });
 });

@@ -7,7 +7,7 @@ import { AccessScreen } from "./AccessScreen";
 import { AdminPage } from "./AdminPage";
 import { inviteMentee } from "@/lib/admin.functions";
 import { openMaterial, uploadMaterial, uploadMedia, useMedia } from "@/lib/media";
-import { emptyData, formatDate, loadPortalData, safeHttps, videoSource, type PortalData, type Row } from "@/lib/portal";
+import { displayPlatformName, emptyData, formatDate, loadPortalData, safeHttps, videoSource, type PortalData, type Row } from "@/lib/portal";
 
 type View = "home" | "trainings" | "training" | "lesson" | "library" | "tools" | "announcements" | "profile" | "admin" | "manage-trainings" | "manage-library" | "manage-tools" | "mentees" | "cohorts" | "manage-announcements" | "settings";
 type FormValue = Record<string, string | boolean>;
@@ -41,6 +41,7 @@ function Portal() {
   useEffect(() => { setLightTheme(localStorage.getItem("theme") === "light"); }, []);
   const toggleTheme = () => { const next = !lightTheme; setLightTheme(next); localStorage.setItem("theme", next ? "light" : "dark"); document.documentElement.classList.toggle("light", next); };
   const [error, setError] = useState("");
+  const brandName = displayPlatformName(settings?.platform_name);
   const logo = useMedia(settings?.logo_url);
   const favicon = useMedia(settings?.favicon_url);
   useEffect(() => { if (favicon) { const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]'); if (link) link.href = favicon; } }, [favicon]);
@@ -57,12 +58,12 @@ function Portal() {
   useEffect(() => { if (isAdmin && !initializedAdmin.current) { initializedAdmin.current = true; setAdminMode(true); setPage("admin"); } }, [isAdmin]);
   if (loading) return <div className="min-h-screen flex items-center justify-center text-muted-foreground"><LoaderCircle className="animate-spin mr-2" />Carregando...</div>;
   const recoveryType = typeof window !== "undefined" ? new URLSearchParams(window.location.hash.slice(1)).get("type") || new URLSearchParams(window.location.search).get("type") : null;
-  if (session && (requiresPasswordSetup || recoveryType === "recovery" || recoveryType === "invite")) return <AccessScreen forceRecovery name={settings?.platform_name || "Portal da Mentoria"} logo={settings?.logo_url} image={settings?.login_image_url} onSuccess={() => { clearPasswordSetup(); void refresh(); }} />;
-  if (!session) return <AccessScreen name={settings?.platform_name || "Portal da Mentoria"} title={settings?.login_title} subtitle={settings?.login_subtitle} logo={settings?.logo_url} image={settings?.login_image_url} onSuccess={() => void refresh()} />;
+  if (session && (requiresPasswordSetup || recoveryType === "recovery" || recoveryType === "invite")) return <AccessScreen forceRecovery name={brandName} logo={settings?.logo_url} image={settings?.login_image_url} onSuccess={() => { clearPasswordSetup(); void refresh(); }} />;
+  if (!session) return <AccessScreen name={brandName} title={settings?.login_title} subtitle={settings?.login_subtitle} logo={settings?.logo_url} image={settings?.login_image_url} onSuccess={() => void refresh()} />;
   if (isMemberBlocked(profile) && !isAdmin) return <div className="min-h-screen grid place-content-center text-center p-6"><Shield className="size-10 mx-auto text-destructive mb-4" /><h1 className="text-2xl font-semibold">Acesso indisponível</h1><p className="text-muted-foreground mt-2">Sua conta está suspensa ou o acesso expirou. Fale com o suporte.</p><button className="portal-outline mx-auto mt-6" onClick={() => void supabase.auth.signOut()}>Sair</button></div>;
   const menu = adminMode && isAdmin ? navAdmin : navStudent;
   const current = menu.find((x) => x.id === page)?.name || (page === "lesson" ? "Aula" : "Treinamento");
-  const name = settings?.platform_name || "Portal da Mentoria";
+  const name = brandName;
   return <div className="min-h-screen bg-background lg:pl-64">
     {mobile && <button aria-label="Fechar menu" className="fixed inset-0 bg-black/70 z-40 lg:hidden" onClick={() => setMobile(false)} />}
     <aside className={"fixed top-0 left-0 bottom-0 w-64 bg-sidebar border-r border-sidebar-border z-50 flex flex-col transition-transform lg:translate-x-0 " + (mobile ? "translate-x-0" : "-translate-x-full")}>

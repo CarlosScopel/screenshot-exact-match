@@ -87,6 +87,12 @@ export function safeHttps(value?: string | null): string | undefined {
   catch { return undefined; }
 }
 
+/** Treat the initial template value as the new brand until an admin customizes it. */
+export function displayPlatformName(value?: string | null): string {
+  const name = value?.trim();
+  return !name || name === "Portal da Mentoria" ? "A ORDEM" : name;
+}
+
 export const emptyData: PortalData = {
   trainings: [], modules: [], lessons: [], materials: [], progress: [],
   notes: [], library: [], categories: [], tools: [], announcements: [],

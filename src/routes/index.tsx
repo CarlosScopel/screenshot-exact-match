@@ -5,9 +5,9 @@ export const Route = createFileRoute("/")({
   component: PortalApp,
   head: () => ({
     meta: [
-      { title: "Portal da Mentoria" },
+      { title: "A ORDEM" },
       { name: "description", content: "Ambiente privado de treinamentos, conteúdos e ferramentas da mentoria." },
-      { property: "og:title", content: "Portal da Mentoria" },
+      { property: "og:title", content: "A ORDEM" },
       { property: "og:description", content: "Área exclusiva de mentorados." },
     ],
   }),
