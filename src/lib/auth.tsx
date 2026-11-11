@@ -1,7 +1,8 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
+import { activateOwnerAccess } from "@/lib/owner.functions";
 
 type Profile = Tables<"profiles">;
 type Settings = Tables<"platform_settings">;
@@ -33,19 +34,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [requiresPasswordSetup, setRequiresPasswordSetup] = useState(false);
+  const [accessError, setAccessError] = useState("");
+  const loadVersion = useRef(0);
 
   const loadUser = useCallback(async (s: Session | null) => {
+    const version = ++loadVersion.current;
+    setLoading(true);
+    setAccessError("");
     if (!s) {
       setProfile(null);
       setRoles([]);
+      setLoading(false);
       return;
     }
-    const [p, r] = await Promise.all([
-      supabase.from("profiles").select("*").eq("id", s.user.id).maybeSingle(),
-      supabase.from("user_roles").select("role").eq("user_id", s.user.id),
-    ]);
-    setProfile(p.data ?? null);
-    setRoles((r.data ?? []).map((x) => x.role));
+    try {
+      // The server verifies the authenticated email before granting the owner role.
+      await activateOwnerAccess();
+      const [p, r] = await Promise.all([
+        supabase.from("profiles").select("*").eq("id", s.user.id).maybeSingle(),
+        supabase.from("user_roles").select("role").eq("user_id", s.user.id),
+      ]);
+      if (version !== loadVersion.current) return;
+      if (p.error || r.error) throw new Error("Não foi possível carregar suas permissões.");
+      setProfile(p.data ?? null);
+      setRoles((r.data ?? []).map((x) => x.role));
+    } catch (error) {
+      if (version !== loadVersion.current) return;
+      setProfile(null);
+      setRoles([]);
+      setAccessError(error instanceof Error ? error.message : "Não foi possível verificar o acesso.");
+    } finally {
+      if (version === loadVersion.current) setLoading(false);
+    }
   }, []);
 
   const refreshSettings = useCallback(async () => {
@@ -62,15 +82,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(s);
       if (event === "PASSWORD_RECOVERY") setRequiresPasswordSetup(true);
       if (event === "SIGNED_OUT") setRequiresPasswordSetup(false);
-      if (event === "SIGNED_IN" || event === "USER_UPDATED" || event === "SIGNED_OUT") {
+      if (event === "SIGNED_IN" || event === "USER_UPDATED" || event === "SIGNED_OUT" || event === "PASSWORD_RECOVERY") {
         setTimeout(() => loadUser(s), 0);
       }
     });
     supabase.auth.getSession().then(async ({ data }) => {
       setSession(data.session);
       await loadUser(data.session);
-      setLoading(false);
       if (data.session) supabase.rpc("touch_last_seen");
+    }).catch(() => {
+      setAccessError("Não foi possível recuperar a sessão. Tente entrar novamente.");
+      setLoading(false);
     });
     return () => sub.subscription.unsubscribe();
   }, [loadUser, refreshSettings]);
@@ -96,7 +118,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearPasswordSetup: () => setRequiresPasswordSetup(false),
       }}
     >
-      {children}
+      {accessError ? (
+        <div className="min-h-screen flex items-center justify-center p-6">
+          <div className="surface p-6 max-w-md text-center">
+            <h1 className="text-xl font-semibold">Verificação de acesso</h1>
+            <p role="alert" className="text-sm text-muted-foreground mt-3">{accessError}</p>
+            <button className="portal-outline mt-5" onClick={async () => {
+              const { error } = await supabase.auth.signOut();
+              if (error) setAccessError("Não foi possível sair. Tente novamente.");
+              else { setAccessError(""); setSession(null); setProfile(null); setRoles([]); }
+            }}>Voltar ao login</button>
+          </div>
+        </div>
+      ) : children}
     </Ctx.Provider>
   );
 }

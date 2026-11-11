@@ -11,41 +11,13 @@ async function assertAdmin(ctx: { supabase: any; userId: string }) {
 /** Public: whether the platform already has an administrator (drives the first-run setup screen). */
 export const getSetupState = createServerFn({ method: "GET" }).handler(async () => {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { count } = await supabaseAdmin
+  const { count, error } = await supabaseAdmin
     .from("user_roles")
     .select("id", { count: "exact", head: true })
     .eq("role", "admin");
+  if (error) throw new Error("Não foi possível verificar a configuração administrativa.");
   return { hasAdmin: (count ?? 0) > 0 };
 });
-
-/** Public, but only works once: creates the first administrator while no admin exists. */
-export const createFirstAdmin = createServerFn({ method: "POST" })
-  .inputValidator((i: unknown) =>
-    z
-      .object({
-        name: z.string().trim().min(2).max(100),
-        email: z.string().trim().email().max(255),
-        password: z.string().min(8).max(72),
-      })
-      .parse(i),
-  )
-  .handler(async ({ data }) => {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { count } = await supabaseAdmin
-      .from("user_roles")
-      .select("id", { count: "exact", head: true })
-      .eq("role", "admin");
-    if ((count ?? 0) > 0) throw new Error("A plataforma já possui um administrador.");
-    const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
-      email: data.email,
-      password: data.password,
-      email_confirm: true,
-      user_metadata: { full_name: data.name },
-    });
-    if (error || !created.user) throw new Error(error?.message ?? "Falha ao criar usuário");
-    await supabaseAdmin.from("user_roles").insert({ user_id: created.user.id, role: "admin" });
-    return { ok: true };
-  });
 
 /**
  * Public application: creates an account without credentials or an active session.
