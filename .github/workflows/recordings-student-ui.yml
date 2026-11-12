@@ -1,0 +1,150 @@
+name: Recordings student experience QA
+on:
+  push:
+    branches: ['qa/recordings-student-experience-20261112']
+    paths: ['.github/workflows/recordings-student-ui.yml', 'scripts/qa-recordings-student-ui.py']
+permissions:
+  contents: write
+defaults:
+  run:
+    shell: bash
+jobs:
+  experience:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Install locked dependencies and apply inspected UI change
+        run: |
+          bun install --frozen-lockfile
+          mkdir -p qa-reports
+          python3 scripts/qa-recordings-student-ui.py
+          bunx prettier --write src/components/portal/RecordingsPanel.tsx src/test/recordings-panel.test.tsx
+          git diff --check
+          git diff --stat | tee qa-reports/diff-stat.txt
+          git diff -- src/components/portal/RecordingsPanel.tsx src/test/recordings-panel.test.tsx > qa-reports/change.diff
+      - name: TypeScript
+        run: bunx tsc --noEmit 2>&1 | tee qa-reports/typescript.log
+      - name: All unit and component tests
+        run: bun run test --reporter=default --reporter=json --outputFile=qa-reports/vitest.json 2>&1 | tee qa-reports/tests.log
+      - name: Lint modified source and tests
+        run: bunx eslint src/components/portal/RecordingsPanel.tsx src/test/recordings-panel.test.tsx 2>&1 | tee qa-reports/lint.log
+      - name: Production build
+        run: bun run build 2>&1 | tee qa-reports/build.log
+      - name: Browser tooling outside app dependencies
+        run: |
+          npm install --prefix "$RUNNER_TEMP/browser" --no-save --package-lock=false playwright
+          node "$RUNNER_TEMP/browser/node_modules/playwright/cli.js" install --with-deps chromium
+          command -v ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y ffmpeg >/dev/null)
+          ffmpeg -f lavfi -i color=c=0x152337:s=640x360:d=5 -c:v libvpx -b:v 120k -an qa-fixture.webm -loglevel error
+      - name: Actual student UI desktop mobile keyboard and unsaved notes
+        run: |
+          export PLAYWRIGHT_PATH="$RUNNER_TEMP/browser/node_modules/playwright/index.mjs"
+          node --env-file=.env --input-type=module <<'JS'
+          import {readFile,writeFile} from 'node:fs/promises';
+          import {pathToFileURL} from 'node:url';
+          import {createServer} from 'vite';
+          import react from '@vitejs/plugin-react';
+          import tailwind from '@tailwindcss/vite';
+          import path from 'node:path';
+          const {chromium}=await import(pathToFileURL(process.env.PLAYWRIGHT_PATH).href);
+          const uid='00000000-0000-4000-8000-000000000002';
+          const base=process.env.VITE_SUPABASE_URL.replace(/\/+$/,'');
+          const fixture=await readFile('qa-fixture.webm');
+          await writeFile('qa-student.html','<html lang="pt-BR"><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="root"></div><script type="module" src="/qa-student.tsx"></script></body></html>');
+          await writeFile('qa-student.tsx',`import {createRoot} from 'react-dom/client';import {RecordingsPanel} from './src/components/portal/RecordingsPanel';import './src/styles.css';createRoot(document.getElementById('root')!).render(<main className="min-h-screen p-4 sm:p-8 max-w-7xl mx-auto"><RecordingsPanel userId="${uid}"/></main>);`);
+          const server=await createServer({configFile:false,root:process.cwd(),plugins:[react(),tailwind()],resolve:{alias:{'@':path.resolve('src')}},server:{host:'127.0.0.1',port:4179}});
+          await server.listen();
+          const browser=await chromium.launch({headless:true});
+          const results=[],errors=[];
+          try {
+            for(const [viewport,width,height] of [['desktop',1440,1100],['mobile',390,844]]) {
+              const first={id:'00000000-0000-4000-8000-000000000101',user_id:uid,title:'Estratégia e plano de ação',description:'Nesta call, revisamos os objetivos da mentoria e organizamos as prioridades da semana. Relembre as decisões e registre os seus próximos passos.',recorded_on:'2026-11-01',file_path:uid+'/first/recording.webm',file_name:'call.webm',mime_type:'video/webm',size_bytes:fixture.length,status:'published',created_at:'2026-11-01T00:00:00Z'};
+              const second={...first,id:'00000000-0000-4000-8000-000000000102',title:'Revisão das campanhas e ajustes',recorded_on:'2026-11-08'};
+              const third={...first,id:'00000000-0000-4000-8000-000000000103',title:'Próximos passos da operação',recorded_on:'2026-11-12'};
+              const notes=new Map([first,second,third].map(r=>[r.id,{content:'',revision:0,position_seconds:0}]));
+              let writes=0;
+              const page=await browser.newPage({viewport:{width,height}});page.on('pageerror',e=>errors.push(String(e)));
+              const cors={'access-control-allow-origin':'*','access-control-allow-headers':'*','access-control-allow-methods':'GET,POST,OPTIONS'};
+              await page.route('**/*',async route=>{
+                const req=route.request(),url=new URL(req.url());
+                if(url.hostname==='127.0.0.1')return route.continue();
+                if(req.method()==='OPTIONS')return route.fulfill({status:204,headers:cors});
+                const rpc=url.pathname.split('/rpc/')[1];
+                if(rpc){const arg=req.postDataJSON();let data=null;
+                  if(rpc==='recordings_list'){if(arg.p_user_id!==uid)throw Error('wrong user');data=[third,first,second];}
+                  else if(rpc==='recordings_learning')data=notes.get(arg.p_id);
+                  else if(rpc==='recordings_save_note'){const n=notes.get(arg.p_id);if(!n||n.revision!==arg.p_revision)throw Error('wrong revision');n.content=arg.p_content;n.revision++;writes++;data=n;}
+                  else if(rpc==='recordings_save_position'){notes.get(arg.p_id).position_seconds=arg.p_seconds;}
+                  else throw Error('unexpected RPC '+rpc);
+                  return route.fulfill({json:data,headers:cors});
+                }
+                if(url.pathname.includes('/object/sign/')&&req.method()==='POST')return route.fulfill({json:{signedURL:'/object/sign/mentorship-recordings/fixture.webm?token=qa'},headers:cors});
+                if(url.pathname.includes('/object/sign/')&&req.method()==='GET'){
+                  const range=req.headers()['range'];if(range){const match=/bytes=(\d+)-(\d*)/.exec(range);const start=Number(match[1]),end=match[2]?Math.min(Number(match[2]),fixture.length-1):fixture.length-1;return route.fulfill({status:206,body:fixture.subarray(start,end+1),headers:{...cors,'Content-Type':'video/webm','Accept-Ranges':'bytes','Content-Range':`bytes ${start}-${end}/${fixture.length}`}});}
+                  return route.fulfill({body:fixture,contentType:'video/webm',headers:cors});
+                }
+                return route.abort();
+              });
+              await page.goto('http://127.0.0.1:4179/qa-student.html');
+              await page.getByRole('article',{name:'Assistindo: '+first.title}).waitFor();
+              await page.waitForFunction(()=>document.querySelector('video')?.readyState>=2);
+              const labels=await page.getByRole('button',{name:/Assistir encontro/}).evaluateAll(items=>items.map(i=>i.getAttribute('aria-label')));
+              if(!labels[0].includes(first.title)||!labels[1].includes(second.title)||!labels[2].includes(third.title))throw Error('wrong sequence');
+              if(!await page.getByRole('button',{name:'Encontro anterior',exact:true}).isDisabled())throw Error('first boundary');
+              await page.getByRole('button',{name:'Velocidade 1.5×',exact:true}).click();
+              if(await page.locator('video').evaluate(v=>v.playbackRate)!==1.5)throw Error('speed not applied');
+              await page.locator('video').evaluate(async v=>{await v.play();});
+              await page.waitForFunction(()=>document.querySelector('video').currentTime>0.5);
+              await page.locator('video').evaluate(v=>v.pause());
+              await page.getByRole('button',{name:'Próximo encontro',exact:true}).click();
+              await page.getByRole('article',{name:'Assistindo: '+second.title}).waitFor();
+              await page.waitForFunction(()=>document.querySelector('video')?.readyState>=2&&document.querySelector('video').playbackRate===1.5);
+              await page.getByLabel('Minhas anotações privadas',{exact:true}).fill('Revisar as campanhas, aplicar os ajustes combinados e trazer os resultados na próxima call.');
+              page.once('dialog',dialog=>dialog.dismiss());
+              await page.getByRole('button',{name:'Próximo encontro',exact:true}).click();
+              if(!await page.getByRole('article',{name:'Assistindo: '+second.title}).count())throw Error('discard guard failed');
+              await page.getByRole('button',{name:'Salvar anotações',exact:true}).click();
+              await page.getByText('Anotações salvas.',{exact:true}).waitFor();
+              await page.getByRole('button',{name:'Próximo encontro',exact:true}).click();
+              await page.getByRole('article',{name:'Assistindo: '+third.title}).waitFor();
+              if(!await page.getByRole('button',{name:'Próximo encontro',exact:true}).isDisabled())throw Error('last boundary');
+              await page.getByRole('button',{name:'Encontro anterior',exact:true}).click();
+              await page.getByRole('article',{name:'Assistindo: '+second.title}).waitFor();
+              await page.waitForFunction(()=>document.querySelector('textarea')?.value.startsWith('Revisar as campanhas'));
+              await page.getByRole('button',{name:'Velocidade 2×',exact:true}).focus();
+              await page.keyboard.press('Enter');
+              if(await page.locator('video').evaluate(v=>v.playbackRate)!==2)throw Error('keyboard speed failed');
+              await page.getByRole('button',{name:'Velocidade 1.5×',exact:true}).click();
+              if(await page.getByRole('combobox').count())throw Error('native speed selector remains');
+              if(await page.getByRole('button',{name:'Enviar gravação',exact:true}).count())throw Error('student upload exposed');
+              if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error(viewport+' horizontal overflow');
+              await page.screenshot({path:`qa-reports/${viewport}-recordings.png`,fullPage:true});
+              if(viewport==='desktop') {await page.evaluate(()=>document.documentElement.classList.add('light'));await page.screenshot({path:'qa-reports/desktop-light-recordings.png',fullPage:true});}
+              results.push({viewport,chronologicalPlaylist:true,firstAndLastBoundaries:true,videoActuallyPlayed:true,speedButtonsAndKeyboard:true,speedPreservedBetweenCalls:true,unsavedNoteGuard:true,savedNotesRestored:true,noNativeDropdown:true,noOverflow:true,privateBackendIntercepted:true,writes});
+              await page.close();
+            }
+            if(errors.length)throw Error(errors.join('\n'));
+          } finally {await writeFile('qa-reports/browser.json',JSON.stringify({results,errors,backend:'intercepted fictitious accounts and generated fixture; no real account or media accessed'},null,2));await browser.close();await server.close();}
+          JS
+      - name: Preserve exactly tested source on QA branch only
+        run: |
+          test "$GITHUB_REF_NAME" = 'qa/recordings-student-experience-20261112'
+          git config user.name 'A ORDEM QA'
+          git config user.email 'qa@a-ordem.invalid'
+          git add src/components/portal/RecordingsPanel.tsx src/test/recordings-panel.test.tsx
+          git commit -m 'qa: preserve tested recordings student experience'
+          git push origin HEAD:"$GITHUB_REF_NAME"
+          git rev-parse HEAD > qa-reports/tested-commit.txt
+          git ls-tree HEAD src/components/portal/RecordingsPanel.tsx src/test/recordings-panel.test.tsx > qa-reports/tested-files.txt
+          tar -czf qa-reports/tested-source.tar.gz src/components/portal/RecordingsPanel.tsx src/test/recordings-panel.test.tsx
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recordings-student-experience-evidence
+          path: qa-reports/
+          retention-days: 7
