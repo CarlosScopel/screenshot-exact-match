@@ -1,0 +1,91 @@
+name: Validate mentee detail in browser and published assets
+on:
+  push:
+    branches: ['qa/mentee-detail-20261112']
+    paths: ['.github/workflows/mentee-detail-browser.yml']
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Isolated browser tooling
+        run: |
+          bun install --frozen-lockfile
+          npm install --prefix "$RUNNER_TEMP/browser" --no-save --package-lock=false playwright
+          node "$RUNNER_TEMP/browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Desktop and mobile individual management with fictitious accounts
+        run: |
+          mkdir -p qa-reports
+          export PLAYWRIGHT_PATH="$RUNNER_TEMP/browser/node_modules/playwright/index.mjs"
+          node --input-type=module <<'JS'
+          import { writeFile } from 'node:fs/promises';
+          import { pathToFileURL } from 'node:url';
+          import { createServer } from 'vite';
+          import react from '@vitejs/plugin-react';
+          import tailwind from '@tailwindcss/vite';
+          import path from 'node:path';
+          const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_PATH).href);
+          await writeFile('qa-detail-functions.ts', 'const blocked = async () => { throw Error("Production writes are disabled in QA"); }; export const inviteMentee=blocked,resendInvite=blocked,deleteMentee=blocked,reviewMentee=blocked;');
+          await writeFile('qa-detail-client.ts', 'export const supabase = { from:()=>{throw Error("No database mutations in this browser check")}, rpc:async (name,args)=>{ if(name!=="mentorship_account")throw Error("Unexpected RPC"); return {data:{user_id:args.p_user_id,server_now:new Date().toISOString(),status:"active",has_access:true,legacy_expires_at:null,plans:[],installments:[],receipts:[]},error:null};} };');
+          await writeFile('qa-detail.html', '<html lang="pt-BR"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/qa-detail.tsx"></script></body></html>');
+          await writeFile('qa-detail.tsx', `import {createRoot} from 'react-dom/client'; import {AdminPage} from './src/components/portal/AdminPage'; import {createDemoPortalData} from './src/lib/demo'; import './src/styles.css'; const data=createDemoPortalData(); data.profiles=[['Ana Teste','ana@example.invalid'],['Bruno Teste','bruno@example.invalid'],['Carla Pendente','carla@example.invalid']].map(([full_name,email],i)=>({id:'00000000-0000-4000-8000-00000000000'+(i+1),full_name,email,status:i===2?'suspended':'active',admin_notes:i===2?'A_ORDEM:AWAITING_APPLICATION_APPROVAL':null,access_expires_at:null,last_seen_at:null,avatar_url:null,created_at:'2026-11-12T12:00:00Z'})); createRoot(document.getElementById('root')!).render(<main className="p-5 sm:p-9 max-w-6xl mx-auto"><AdminPage page="mentees" data={data} reload={async()=>{}} go={()=>{}} settings={null} refreshSettings={async()=>{}}/></main>);`);
+          const server=await createServer({configFile:false,root:process.cwd(),plugins:[react(),tailwind()],resolve:{alias:[{find:'@/lib/admin.functions',replacement:path.resolve('qa-detail-functions.ts')},{find:'@/integrations/supabase/client',replacement:path.resolve('qa-detail-client.ts')},{find:'@',replacement:path.resolve('src')}]},server:{host:'127.0.0.1',port:4179}});
+          await server.listen(); const browser=await chromium.launch({headless:true}); const checks=[]; const errors=[];
+          try {
+            for (const [viewport,width,height] of [['desktop',1440,1100],['mobile',390,844]]) {
+              const page=await browser.newPage({viewport:{width,height}}); page.on('pageerror',e=>errors.push(String(e)));
+              await page.route('**/*',route=>new URL(route.request().url()).hostname==='127.0.0.1'?route.continue():route.abort());
+              await page.goto('http://127.0.0.1:4179/qa-detail.html');
+              await page.getByRole('heading',{name:'Mentorados',exact:true}).waitFor();
+              await page.getByRole('row').filter({hasText:'ana@example.invalid'}).getByRole('button',{name:'Gerenciar',exact:true}).click();
+              await page.getByRole('heading',{name:'Gerenciar Ana Teste',exact:true}).waitFor();
+              await page.getByRole('heading',{name:'Plano e pagamentos',exact:true}).waitFor();
+              if(await page.getByRole('region',{name:'Solicitações aguardando aprovação'}).count())throw Error('Approval panel remained visible');
+              if(await page.getByRole('button',{name:'Enviar convite',exact:true}).count())throw Error('Invite form remained visible');
+              if(await page.getByRole('table').count())throw Error('Global table remained visible');
+              if(await page.getByText('bruno@example.invalid',{exact:true}).count())throw Error('Other mentee remained visible');
+              await page.screenshot({path:`qa-reports/${viewport}-selected.png`,fullPage:true});
+              if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error(viewport+' horizontal overflow');
+              await page.getByRole('button',{name:'Voltar aos mentorados',exact:true}).click();
+              await page.getByRole('table').waitFor(); await page.getByRole('button',{name:'Enviar convite',exact:true}).waitFor();
+              await page.getByRole('region',{name:'Solicitações aguardando aprovação'}).waitFor();
+              await page.getByRole('row').filter({hasText:'bruno@example.invalid'}).getByRole('button',{name:'Gerenciar',exact:true}).click();
+              await page.getByRole('heading',{name:'Gerenciar Bruno Teste',exact:true}).waitFor();
+              if(await page.getByText('ana@example.invalid',{exact:true}).count())throw Error('Previous mentee leaked into next detail');
+              checks.push({viewport,selectedOnly:true,planPanelPreserved:true,returnRestoresList:true,canSelectAnother:true,noOverflow:true});
+              await page.close();
+            }
+            if(errors.length)throw Error(errors.join('\n'));
+          } finally { await writeFile('qa-reports/browser.json',JSON.stringify({checks,errors,productionDataAccess:false},null,2)); await browser.close(); await server.close(); }
+          JS
+      - name: Confirm published code without accessing authenticated records
+        run: |
+          export PLAYWRIGHT_PATH="$RUNNER_TEMP/browser/node_modules/playwright/index.mjs"
+          node --input-type=module <<'JS'
+          import {writeFile} from 'node:fs/promises'; import {pathToFileURL} from 'node:url';
+          const {chromium}=await import(pathToFileURL(process.env.PLAYWRIGHT_PATH).href);
+          const browser=await chromium.launch({headless:true}); const target='https://pixel-perfect-replay-54723.lovable.app'; const report={target,correctedDetailCodeFound:false,accessedPrivateAccounts:false};
+          try {
+            const page=await browser.newPage(); await page.goto(target,{waitUntil:'networkidle',timeout:60000});
+            await page.getByRole('button',{name:'Entrar na plataforma',exact:true}).waitFor({timeout:30000});
+            const assets=await page.evaluate(()=>[...new Set(performance.getEntriesByType('resource').map(r=>r.name).filter(u=>/\.js(?:\?|$)/.test(u)))]);
+            for(const url of assets){ if(new URL(url).origin!==new URL(target).origin)continue; const response=await page.request.get(url); if(!response.ok())continue; const text=await response.text(); if(text.includes('Voltar aos mentorados')&&text.includes('Gerenciar mentorado'))report.correctedDetailCodeFound=true; }
+            if(!report.correctedDetailCodeFound)throw Error('New detail UI was not found in published assets');
+          } finally {await writeFile('qa-reports/published.json',JSON.stringify(report,null,2));await browser.close();}
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mentee-detail-browser-evidence
+          path: qa-reports/
+          retention-days: 7
