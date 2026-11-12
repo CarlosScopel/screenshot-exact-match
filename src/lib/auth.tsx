@@ -80,7 +80,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshSettings = useCallback(async () => {
-    const { data } = await supabase.from("platform_settings").select("*").eq("id", 1).maybeSingle();
+    const { data: full } = await supabase
+      .from("platform_settings")
+      .select("*")
+      .eq("id", 1)
+      .maybeSingle();
+    let data = full as Settings | null;
+    if (!data) {
+      const { data: pub } = await supabase.rpc("get_public_branding");
+      data = pub ? ({ support_email: null, support_whatsapp: null, ...(pub as object) } as Settings) : null;
+    }
     setSettings(data ?? null);
     hexToApply(data?.primary_color);
   }, []);
@@ -101,7 +110,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         event === "SIGNED_OUT" ||
         event === "PASSWORD_RECOVERY"
       ) {
-        setTimeout(() => loadUser(s), 0);
+        setTimeout(() => {
+          loadUser(s);
+          refreshSettings();
+        }, 0);
       }
     });
     supabase.auth

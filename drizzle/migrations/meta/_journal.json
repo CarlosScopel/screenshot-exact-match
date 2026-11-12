@@ -15,6 +15,13 @@
       "when": 1794404855923,
       "tag": "0001_migration",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794486634880,
+      "tag": "0002_tighten_settings_and_media",
+      "breakpoints": true
     }
   ]
 }
