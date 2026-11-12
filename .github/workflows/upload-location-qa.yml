@@ -1,0 +1,264 @@
+name: Recording upload location regression
+on:
+  push:
+    branches: ['qa/recording-upload-location-20261112']
+    paths: ['.github/workflows/upload-location-qa.yml']
+permissions:
+  contents: write
+defaults:
+  run:
+    shell: bash
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Add regression cases against inspected source
+        run: |
+          mkdir -p qa-reports
+          python3 <<'PY'
+          from pathlib import Path
+          import hashlib
+          for path,expected in [('src/lib/recordings-upload.ts','1aaf679e60b1ed69cfa91e70f1aa3e289f91d27d'),('src/test/recordings-upload.test.ts','030f3de1c5aa9a51410f00e28882a9b25b79619c')]:
+              b=Path(path).read_bytes()
+              assert hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest()==expected,'Unexpected base: '+path
+          PY
+          cat >> src/test/recordings-upload.test.ts <<'TS'
+
+          describe("Endereços TUS atrás do proxy de armazenamento", () => {
+            const locations = [
+              endpoint + "/proxy-id",
+              "/storage/v1/upload/resumable/proxy-id",
+              "/upload/resumable/proxy-id",
+              "resumable/proxy-id",
+              "proxy-id",
+              "http://storage:5000/upload/resumable/proxy-id",
+              "http://storage:5000/storage/v1/upload/resumable/proxy-id",
+              "https://internal-storage.example.test/storage/v1/upload/resumable/proxy-id",
+              "http://storage.example.test/storage/v1/upload/resumable/proxy-id",
+            ];
+            it.each(locations)("conclui o envio usando somente o destino público: %s", async (location) => {
+              const file = new File(["video-fixture"], "call.mp4");
+              fetchMock
+                .mockResolvedValueOnce(response(201, { Location: location }))
+                .mockResolvedValueOnce(response(204, { "Upload-Offset": String(file.size) }));
+              await tusRecordingUpload(file, path, "video/mp4", endpoint, headers, options());
+              expect(fetchMock).toHaveBeenCalledTimes(2);
+              expect(fetchMock.mock.calls[1]?.[0]).toBe(endpoint + "/proxy-id");
+              for (const [target, init] of fetchMock.mock.calls) {
+                expect(new URL(target).origin).toBe(new URL(endpoint).origin);
+                expect(init.redirect).toBe("error");
+              }
+              expect(JSON.parse(sessionStorage.getItem(`ordem:call-upload:${path}`)!)).toMatchObject({
+                url: endpoint + "/proxy-id",
+              });
+            });
+            it("normaliza a barra final do endpoint antes de continuar", async () => {
+              const file = new File(["a"], "call.mp4");
+              fetchMock
+                .mockResolvedValueOnce(response(201, { Location: endpoint + "/id" }))
+                .mockResolvedValueOnce(response(204, { "Upload-Offset": "1" }));
+              await tusRecordingUpload(file, path, "video/mp4", endpoint + "/", headers, options());
+              expect(fetchMock.mock.calls[1]?.[0]).toBe(endpoint + "/id");
+            });
+            it("preserva o prefixo público do projeto ao receber um caminho interno", async () => {
+              const prefixed = "https://gateway.example.test/project/storage/v1/upload/resumable";
+              fetchMock
+                .mockResolvedValueOnce(response(201, { Location: "http://storage:5000/upload/resumable/id" }))
+                .mockResolvedValueOnce(response(204, { "Upload-Offset": "1" }));
+              await tusRecordingUpload(new File(["a"], "call.mp4"), path, "video/mp4", prefixed, headers, options());
+              expect(fetchMock.mock.calls[1]?.[0]).toBe(prefixed + "/id");
+            });
+            it("preserva identificadores codificados sem usá-los como caminho de outro serviço", async () => {
+              const id = "YWJj%2FZGVm%2BZw%3D%3D";
+              fetchMock
+                .mockResolvedValueOnce(response(201, { Location: "http://storage:5000/upload/resumable/" + id }))
+                .mockResolvedValueOnce(response(204, { "Upload-Offset": "1" }));
+              await tusRecordingUpload(new File(["a"], "call.mp4"), path, "video/mp4", endpoint, headers, options());
+              expect(fetchMock.mock.calls[1]?.[0]).toBe(endpoint + "/" + id);
+            });
+            it.each([
+              "https://attacker.example.test/collect",
+              "https://user:password@storage.example.test/storage/v1/upload/resumable/id",
+              "/auth/v1/user",
+              "/upload/resumable/../auth",
+              "/upload/resumable/%2e%2e/auth",
+              "/upload/resumable/%252e%252e%252fauth",
+              "/upload/resumable/",
+              "/upload/resumable/id?redirect=https://attacker.example.test",
+              "/upload/resumable/id#fragment",
+              "javascript:alert(1)",
+              "https://[invalid",
+              "\\\\attacker.example.test\\upload\\resumable\\id",
+            ])("recusa destinos que não identificam um recurso TUS: %s", async (location) => {
+              fetchMock.mockResolvedValueOnce(response(201, { Location: location }));
+              await expect(tusRecordingUpload(new File(["a"], "call.mp4"), path, "video/mp4", endpoint, headers, options())).rejects.toThrow("inválido");
+              expect(fetchMock).toHaveBeenCalledTimes(1);
+              expect(sessionStorage.getItem(`ordem:call-upload:${path}`)).toBeNull();
+            });
+            it("nunca confia em um domínio externo recuperado do sessionStorage", async () => {
+              const file = new File(["a"], "call.mp4", { lastModified: 100 });
+              sessionStorage.setItem(`ordem:call-upload:${path}`, JSON.stringify({
+                url: "https://attacker.example.test/storage/v1/upload/resumable/id",
+                name: file.name, size: file.size, modified: 100,
+              }));
+              await expect(tusRecordingUpload(file, path, "video/mp4", endpoint, headers, options())).rejects.toThrow("inválido");
+              expect(fetchMock).not.toHaveBeenCalled();
+            });
+            it("retoma no endereço público normalizado sem criar outro upload", async () => {
+              const file = new File(["abc"], "call.mp4", { lastModified: 100 });
+              fetchMock
+                .mockResolvedValueOnce(response(201, { Location: "http://storage:5000/upload/resumable/id" }))
+                .mockResolvedValueOnce(response(204, { "Upload-Offset": "3" }));
+              await tusRecordingUpload(file, path, "video/mp4", endpoint, headers, options());
+              fetchMock.mockReset();
+              fetchMock.mockResolvedValueOnce(response(200, { "Upload-Offset": "3" }));
+              await tusRecordingUpload(file, path, "video/mp4", endpoint, headers, options());
+              expect(fetchMock).toHaveBeenCalledTimes(1);
+              expect(fetchMock.mock.calls[0]?.[0]).toBe(endpoint + "/id");
+              expect(fetchMock.mock.calls[0]?.[1].method).toBe("HEAD");
+            });
+          });
+          TS
+          if bunx vitest run src/test/recordings-upload.test.ts > qa-reports/before-fix.log 2>&1; then
+            echo 'Regression unexpectedly passed before fix'; exit 1
+          fi
+          grep -q 'O servidor retornou um endereço de upload inválido' qa-reports/before-fix.log
+      - name: Apply only upload URL normalization and redirect protection
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          p=Path('src/lib/recordings-upload.ts')
+          s=p.read_text()
+          start=s.index('export function safeUploadLocation(')
+          end=s.index('function errorFor(',start)
+          s=s[:start]+'''/**
+           * A trusted POST response may advertise the storage service's internal host/path.
+           * Use only its TUS resource identifier, never its origin, as an authenticated target.
+           * Cached URLs remain strictly same-origin and are not granted this normalization.
+           */
+          export function safeUploadLocation(value: string, endpoint: string, serverResponse = false) {
+            const invalid = () => new Error("O servidor retornou um endereço de upload inválido.");
+            try {
+              const base = new URL(endpoint);
+              const root = base.pathname.replace(/\\/+$/, "");
+              const input = value.trim();
+              if (
+                !["https:", "http:"].includes(base.protocol) ||
+                base.username || base.password || base.search || base.hash ||
+                !root.endsWith("/storage/v1/upload/resumable") ||
+                !input || /[\\u0000-\\u0020\\u007f\\\\]/.test(input)
+              ) throw invalid();
+              // Bare resource IDs are relative to the collection; other references follow URL rules.
+              const bareId = /^[A-Za-z0-9_~.%+=-]+$/.test(input) && input !== "." && input !== "..";
+              const url = new URL(input, base.origin + root + (bareId ? "/" : ""));
+              if (
+                !["https:", "http:"].includes(url.protocol) ||
+                url.username || url.password || url.search || url.hash ||
+                (!serverResponse && url.origin !== base.origin)
+              ) throw invalid();
+              const prefixes = serverResponse
+                ? [root + "/", "/storage/v1/upload/resumable/", "/upload/resumable/"]
+                : [root + "/"];
+              const prefix = prefixes.find((candidate) => url.pathname.startsWith(candidate));
+              if (!prefix) throw invalid();
+              const resource = url.pathname.slice(prefix.length);
+              // Supabase resource IDs may contain base64 characters, including encoded /, + and =.
+              if (!resource || !/^(?:[A-Za-z0-9_~.+=/-]|%2[bBfF]|%3[dD])+$/.test(resource))
+                throw invalid();
+              const parts = decodeURIComponent(resource).split("/");
+              if (parts.some((part) => part === "." || part === "..")) throw invalid();
+              const target = new URL(base.origin + root + "/" + resource);
+              if (target.origin !== base.origin || !target.pathname.startsWith(root + "/"))
+                throw invalid();
+              return target.href;
+            } catch {
+              throw invalid();
+            }
+          }
+          '''+s[end:]
+          old='      ...init,\n      signal,\n      headers:'
+          assert s.count(old)==1
+          s=s.replace(old,'      ...init,\n      signal,\n      redirect: "error",\n      headers:',1)
+          old='    url = safeUploadLocation(location, endpoint);'
+          assert s.count(old)==1
+          s=s.replace(old,'    url = safeUploadLocation(location, endpoint, true);',1)
+          p.write_text(s)
+          PY
+          bunx prettier --write src/lib/recordings-upload.ts src/test/recordings-upload.test.ts
+          git diff --check
+          git diff -- src/lib/recordings-upload.ts src/test/recordings-upload.test.ts > qa-reports/change.diff
+      - name: TypeScript
+        run: bunx tsc --noEmit 2>&1 | tee qa-reports/typescript.log
+      - name: All unit and component tests
+        run: bunx vitest run --reporter=default --reporter=json --outputFile.json=qa-reports/vitest.json 2>&1 | tee qa-reports/tests.log
+      - name: Lint changed source and tests
+        run: bunx eslint src/lib/recordings-upload.ts src/test/recordings-upload.test.ts 2>&1 | tee qa-reports/lint.log
+      - name: Production build
+        run: bun run build 2>&1 | tee qa-reports/build.log
+      - name: Real HTTP transfer through isolated proxy fixture
+        run: |
+          node --input-type=module <<'JS'
+          import ts from 'typescript';
+          import {readFile,writeFile} from 'node:fs/promises';
+          import {createServer} from 'node:http';
+          import assert from 'node:assert/strict';
+          import {createHash} from 'node:crypto';
+          let source=await readFile('src/lib/recordings-upload.ts','utf8');
+          source=source.replace(/^import .*;\n/gm,'');
+          source='const RECORDING_BUCKET="mentorship-recordings";\n'+source;
+          const js=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText;
+          const {tusRecordingUpload,RECORDING_CHUNK_BYTES}=await import('data:text/javascript;base64,'+Buffer.from(js).toString('base64'));
+          const cache=new Map();globalThis.sessionStorage={getItem:k=>cache.get(k)??null,setItem:(k,v)=>cache.set(k,v),removeItem:k=>cache.delete(k)};
+          const bytes=Buffer.alloc(RECORDING_CHUNK_BYTES+23,65);
+          let received=0;const chunks=[],requests=[];
+          const server=createServer(async(req,res)=>{
+            requests.push({method:req.method,path:req.url});
+            assert.equal(req.headers.authorization,'Bearer isolated-test-session');
+            assert.equal(req.headers['tus-resumable'],'1.0.0');
+            const collection='/storage/v1/upload/resumable';
+            if(req.url===collection && req.method==='POST'){
+              res.writeHead(201,{Location:'http://storage:5000/upload/resumable/fixture-id'});res.end();return;
+            }
+            assert.equal(req.url,collection+'/fixture-id');
+            if(req.method==='HEAD'){res.writeHead(200,{'Upload-Offset':String(received)});res.end();return;}
+            assert.equal(req.method,'PATCH');assert.equal(Number(req.headers['upload-offset']),received);
+            for await (const chunk of req){chunks.push(chunk);received+=chunk.length;}
+            res.writeHead(204,{'Upload-Offset':String(received)});res.end();
+          });
+          await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+          const endpoint=`http://127.0.0.1:${server.address().port}/storage/v1/upload/resumable`;
+          try {
+            const file=new File([bytes],'fixture.mp4',{lastModified:100});
+            const options={signal:new AbortController().signal,onProgress:()=>{}};
+            const headers=async()=>({Authorization:'Bearer isolated-test-session'});
+            await tusRecordingUpload(file,'isolated/fixture/recording.mp4','video/mp4',endpoint,headers,options);
+            assert.equal(received,bytes.length);
+            assert.equal(createHash('sha256').update(Buffer.concat(chunks)).digest('hex'),createHash('sha256').update(bytes).digest('hex'));
+            await tusRecordingUpload(file,'isolated/fixture/recording.mp4','video/mp4',endpoint,headers,options);
+            assert.deepEqual(requests.map(r=>r.method),['POST','PATCH','PATCH','HEAD']);
+            await writeFile('qa-reports/http-transfer.json',JSON.stringify({passed:true,bytes:received,checksumMatch:true,internalLocationNormalized:true,resumeVerified:true,requests,productionAccess:false},null,2));
+          } finally {await new Promise(resolve=>server.close(resolve));}
+          JS
+      - name: Preserve only verified application changes on QA branch
+        run: |
+          git config user.name 'Carlos Scopel'
+          git config user.email '134417730+CarlosScopel@users.noreply.github.com'
+          git add src/lib/recordings-upload.ts src/test/recordings-upload.test.ts
+          git commit -m 'fix: normalizar Location TUS do proxy sem expor credenciais'
+          git push origin HEAD:qa/recording-upload-location-20261112
+          git rev-parse HEAD > qa-reports/tested-commit.txt
+          git ls-files -s src/lib/recordings-upload.ts src/test/recordings-upload.test.ts > qa-reports/tested-files.txt
+          tar -czf qa-reports/tested-source.tar.gz src/lib/recordings-upload.ts src/test/recordings-upload.test.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: upload-location-evidence
+          path: qa-reports/
+          retention-days: 7
