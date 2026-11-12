@@ -1,0 +1,56 @@
+name: Verify focused mentee administration
+on:
+  push:
+    branches: ['qa/mentee-detail-20261112']
+    paths: ['qa-mentee-detail.py', 'src/test/mentee-detail.test.tsx', '.github/workflows/mentee-detail-qa.yml']
+permissions:
+  contents: write
+defaults:
+  run:
+    shell: bash
+jobs:
+  detail:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Install locked dependencies
+        run: |
+          mkdir -p qa-reports
+          bun install --frozen-lockfile
+      - name: Reproduce selected mentee showing general panels
+        run: |
+          status=0
+          bun run test src/test/mentee-detail.test.tsx -t 'oculta a visão geral' --reporter=default --reporter=json --outputFile=qa-reports/baseline.json > qa-reports/baseline.log 2>&1 || status=$?
+          test "$status" -ne 0
+          node --input-type=module -e 'import fs from "node:fs";const r=JSON.parse(fs.readFileSync("qa-reports/baseline.json","utf8"));if(r.numFailedTests!==1)throw Error("Expected one failing reproduction");'
+      - name: Apply only selected-detail presentation change
+        run: |
+          python3 qa-mentee-detail.py
+          bunx --no-install prettier --write src/components/portal/AdminPage.tsx src/test/mentee-detail.test.tsx
+      - name: TypeScript
+        run: bunx --no-install tsc --noEmit 2>&1 | tee qa-reports/typescript.log
+      - name: All unit and component tests
+        run: bun run test --reporter=default --reporter=json --outputFile=qa-reports/vitest.json 2>&1 | tee qa-reports/tests.log
+      - name: Lint modified source and regression tests
+        run: bunx --no-install eslint src/components/portal/AdminPage.tsx src/test/mentee-detail.test.tsx 2>&1 | tee qa-reports/lint.log
+      - name: Production build
+        run: bun run build 2>&1 | tee qa-reports/build.log
+      - name: Preserve only verified application files on QA branch
+        run: |
+          git diff -- src/components/portal/AdminPage.tsx src/test/mentee-detail.test.tsx > qa-reports/tested.diff
+          git add src/components/portal/AdminPage.tsx src/test/mentee-detail.test.tsx
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'fix: verified focused mentee management [skip ci]'
+          git push origin HEAD:qa/mentee-detail-20261112
+          git rev-parse HEAD > qa-reports/tested-commit.txt
+          git ls-tree HEAD src/components/portal/AdminPage.tsx src/test/mentee-detail.test.tsx > qa-reports/tested-files.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mentee-detail-evidence
+          path: qa-reports/
+          retention-days: 7
