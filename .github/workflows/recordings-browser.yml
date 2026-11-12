@@ -89,7 +89,7 @@ jobs:
               await page.locator('video').evaluate(async v=>{await v.play();});
               await page.waitForFunction(()=>document.querySelector('video').currentTime>1.2);
               await page.locator('video').evaluate(v=>v.pause());
-              await page.getByLabel('Velocidade',{exact:true}).selectOption('1.5');
+              await page.getByRole('combobox',{name:/Velocidade/}).selectOption('1.5');
               await page.getByLabel('Minhas anotações privadas',{exact:true}).fill('Plano da próxima call: executar as tarefas.');
               await page.getByRole('button',{name:'Salvar anotações',exact:true}).click();
               await page.getByText('Anotações salvas.',{exact:true}).waitFor();
