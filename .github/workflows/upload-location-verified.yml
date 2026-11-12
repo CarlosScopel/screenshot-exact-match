@@ -1,0 +1,72 @@
+name: Verify recording upload proxy fix
+on:
+  push:
+    branches: ['qa/recording-upload-location-20261112']
+    paths: ['.github/workflows/upload-location-verified.yml']
+permissions:
+  contents: write
+defaults:
+  run:
+    shell: bash
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Reproduce and apply the inspected correction
+        run: |
+          python3 <<'PY'
+          import yaml
+          from pathlib import Path
+          steps=yaml.safe_load(Path('.github/workflows/upload-location-qa.yml').read_text())['jobs']['upload']['steps']
+          names={
+            'Add regression cases against inspected source':'regression',
+            'Apply only upload URL normalization and redirect protection':'patch',
+            'Real HTTP transfer through isolated proxy fixture':'http',
+            'Preserve only verified application changes on QA branch':'preserve',
+          }
+          for step in steps:
+              if step.get('name') in names:
+                  Path('/tmp/ordem-upload-'+names[step['name']]+'.sh').write_text(step['run'])
+          PY
+          bash -eo pipefail /tmp/ordem-upload-regression.sh
+          bash -eo pipefail /tmp/ordem-upload-patch.sh
+          python3 <<'PY'
+          from pathlib import Path
+          p=Path('src/lib/recordings-upload.ts')
+          lines=p.read_text().splitlines()
+          found=0
+          for i,line in enumerate(lines):
+              if 'u0000' in line and '.test(input)' in line:
+                  lines[i]='      Array.from(input).some((character) => character.charCodeAt(0) <= 32 || [92, 127].includes(character.charCodeAt(0)))'
+                  found+=1
+          assert found==1
+          p.write_text('\n'.join(lines)+'\n')
+          PY
+          bunx prettier --write src/lib/recordings-upload.ts src/test/recordings-upload.test.ts
+          git diff --check
+          git diff -- src/lib/recordings-upload.ts src/test/recordings-upload.test.ts > qa-reports/change.diff
+      - name: TypeScript
+        run: bunx tsc --noEmit 2>&1 | tee qa-reports/typescript.log
+      - name: All unit and component tests
+        run: bunx vitest run --reporter=default --reporter=json --outputFile.json=qa-reports/vitest.json 2>&1 | tee qa-reports/tests.log
+      - name: Lint changed source and tests
+        run: bunx eslint src/lib/recordings-upload.ts src/test/recordings-upload.test.ts 2>&1 | tee qa-reports/lint.log
+      - name: Production build
+        run: bun run build 2>&1 | tee qa-reports/build.log
+      - name: Real HTTP transfer and resumption through isolated proxy fixture
+        run: bash -eo pipefail /tmp/ordem-upload-http.sh
+      - name: Preserve verified application files on QA branch only
+        run: bash -eo pipefail /tmp/ordem-upload-preserve.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: upload-location-evidence
+          path: qa-reports/
+          retention-days: 7
