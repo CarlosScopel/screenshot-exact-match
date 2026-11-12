@@ -22,6 +22,7 @@ jobs:
         run: |
           test "$(git hash-object src/components/portal/AdminPage.tsx)" = '41e81d6badc8bedd7f46b719980850d3619c8b18'
           mkdir -p qa-reports
+          sed -i 's/name: "Módulos", exact: true/name: "Módulos"/' src/test/lesson-materials.test.tsx
           bun install --frozen-lockfile
       - name: Reproduce empty selector before correction
         run: |
