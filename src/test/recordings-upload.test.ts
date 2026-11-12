@@ -120,3 +120,130 @@ describe("Upload TUS de gravações", () => {
     expect(sessionStorage.getItem("other")).toBe("keep");
   });
 });
+
+describe("Endereços TUS atrás do proxy de armazenamento", () => {
+  const locations = [
+    endpoint + "/proxy-id",
+    "/storage/v1/upload/resumable/proxy-id",
+    "/upload/resumable/proxy-id",
+    "resumable/proxy-id",
+    "proxy-id",
+    "http://storage:5000/upload/resumable/proxy-id",
+    "http://storage:5000/storage/v1/upload/resumable/proxy-id",
+    "https://internal-storage.example.test/storage/v1/upload/resumable/proxy-id",
+    "http://storage.example.test/storage/v1/upload/resumable/proxy-id",
+  ];
+  it.each(locations)("conclui o envio usando somente o destino público: %s", async (location) => {
+    const file = new File(["video-fixture"], "call.mp4");
+    fetchMock
+      .mockResolvedValueOnce(response(201, { Location: location }))
+      .mockResolvedValueOnce(response(204, { "Upload-Offset": String(file.size) }));
+    await tusRecordingUpload(file, path, "video/mp4", endpoint, headers, options());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(endpoint + "/proxy-id");
+    for (const [target, init] of fetchMock.mock.calls) {
+      expect(new URL(target).origin).toBe(new URL(endpoint).origin);
+      expect(init.redirect).toBe("error");
+    }
+    expect(JSON.parse(sessionStorage.getItem(`ordem:call-upload:${path}`)!)).toMatchObject({
+      url: endpoint + "/proxy-id",
+    });
+  });
+  it("normaliza a barra final do endpoint antes de continuar", async () => {
+    const file = new File(["a"], "call.mp4");
+    fetchMock
+      .mockResolvedValueOnce(response(201, { Location: endpoint + "/id" }))
+      .mockResolvedValueOnce(response(204, { "Upload-Offset": "1" }));
+    await tusRecordingUpload(file, path, "video/mp4", endpoint + "/", headers, options());
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(endpoint + "/id");
+  });
+  it("preserva o prefixo público do projeto ao receber um caminho interno", async () => {
+    const prefixed = "https://gateway.example.test/project/storage/v1/upload/resumable";
+    fetchMock
+      .mockResolvedValueOnce(response(201, { Location: "http://storage:5000/upload/resumable/id" }))
+      .mockResolvedValueOnce(response(204, { "Upload-Offset": "1" }));
+    await tusRecordingUpload(
+      new File(["a"], "call.mp4"),
+      path,
+      "video/mp4",
+      prefixed,
+      headers,
+      options(),
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(prefixed + "/id");
+  });
+  it("preserva identificadores codificados sem usá-los como caminho de outro serviço", async () => {
+    const id = "YWJj%2FZGVm%2BZw%3D%3D";
+    fetchMock
+      .mockResolvedValueOnce(
+        response(201, { Location: "http://storage:5000/upload/resumable/" + id }),
+      )
+      .mockResolvedValueOnce(response(204, { "Upload-Offset": "1" }));
+    await tusRecordingUpload(
+      new File(["a"], "call.mp4"),
+      path,
+      "video/mp4",
+      endpoint,
+      headers,
+      options(),
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(endpoint + "/" + id);
+  });
+  it.each([
+    "https://attacker.example.test/collect",
+    "https://user:password@storage.example.test/storage/v1/upload/resumable/id",
+    "/auth/v1/user",
+    "/upload/resumable/../auth",
+    "/upload/resumable/%2e%2e/auth",
+    "/upload/resumable/%252e%252e%252fauth",
+    "/upload/resumable/",
+    "/upload/resumable/id?redirect=https://attacker.example.test",
+    "/upload/resumable/id#fragment",
+    "javascript:alert(1)",
+    "https://[invalid",
+    "\\\\attacker.example.test\\upload\\resumable\\id",
+  ])("recusa destinos que não identificam um recurso TUS: %s", async (location) => {
+    fetchMock.mockResolvedValueOnce(response(201, { Location: location }));
+    await expect(
+      tusRecordingUpload(
+        new File(["a"], "call.mp4"),
+        path,
+        "video/mp4",
+        endpoint,
+        headers,
+        options(),
+      ),
+    ).rejects.toThrow("inválido");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(sessionStorage.getItem(`ordem:call-upload:${path}`)).toBeNull();
+  });
+  it("nunca confia em um domínio externo recuperado do sessionStorage", async () => {
+    const file = new File(["a"], "call.mp4", { lastModified: 100 });
+    sessionStorage.setItem(
+      `ordem:call-upload:${path}`,
+      JSON.stringify({
+        url: "https://attacker.example.test/storage/v1/upload/resumable/id",
+        name: file.name,
+        size: file.size,
+        modified: 100,
+      }),
+    );
+    await expect(
+      tusRecordingUpload(file, path, "video/mp4", endpoint, headers, options()),
+    ).rejects.toThrow("inválido");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it("retoma no endereço público normalizado sem criar outro upload", async () => {
+    const file = new File(["abc"], "call.mp4", { lastModified: 100 });
+    fetchMock
+      .mockResolvedValueOnce(response(201, { Location: "http://storage:5000/upload/resumable/id" }))
+      .mockResolvedValueOnce(response(204, { "Upload-Offset": "3" }));
+    await tusRecordingUpload(file, path, "video/mp4", endpoint, headers, options());
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(response(200, { "Upload-Offset": "3" }));
+    await tusRecordingUpload(file, path, "video/mp4", endpoint, headers, options());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(endpoint + "/id");
+    expect(fetchMock.mock.calls[0]?.[1].method).toBe("HEAD");
+  });
+});
