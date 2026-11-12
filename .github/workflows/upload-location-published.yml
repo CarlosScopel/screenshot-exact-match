@@ -1,0 +1,65 @@
+name: Verify published upload location fix
+on:
+  push:
+    branches: ['qa/recording-upload-location-20261112']
+    paths: ['.github/workflows/upload-location-published.yml']
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  published:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '49c398bd705abacf8624c3433aa80865e0929bbd'
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: mkdir -p qa-reports && bun run build > qa-reports/build.log 2>&1
+      - name: Match deployed upload code with tested build without authentication
+        run: |
+          node --input-type=module <<'JS'
+          import {readFile,readdir,writeFile} from 'node:fs/promises';
+          import {createHash} from 'node:crypto';
+          import assert from 'node:assert/strict';
+          const origin='https://pixel-perfect-replay-54723.lovable.app';
+          const dir='.output/public/assets';
+          const expected=[];
+          for(const name of await readdir(dir)){
+            if(!name.endsWith('.js'))continue;
+            const bytes=await readFile(dir+'/'+name);
+            if(bytes.includes(Buffer.from('Tus-Resumable'))&&bytes.includes(Buffer.from('/upload/resumable/'))){
+              expected.push({name,sha256:createHash('sha256').update(bytes).digest('hex')});
+            }
+          }
+          assert.equal(expected.length,1,'Exactly one client bundle must contain upload code');
+          let result;
+          for(let attempt=0;attempt<30;attempt++){
+            const htmlResponse=await fetch(origin+'/?upload-fix='+Date.now(),{cache:'no-store'});
+            const html=await htmlResponse.text();
+            const response=await fetch(origin+'/assets/'+expected[0].name,{cache:'no-store'});
+            const bytes=Buffer.from(await response.arrayBuffer());
+            const digest=createHash('sha256').update(bytes).digest('hex');
+            if(htmlResponse.ok&&response.ok&&digest===expected[0].sha256){
+              result={passed:true,sourceCommit:'49c398bd705abacf8624c3433aa80865e0929bbd',siteStatus:htmlResponse.status,bundle:expected[0].name,sha256:digest,exactMatch:true,productionAuthenticatedUpload:false,htmlReferencesAsset:html.includes(expected[0].name)};
+              break;
+            }
+            await new Promise(resolve=>setTimeout(resolve,5000));
+          }
+          assert.ok(result,'Updated client bundle not confirmed in publication window');
+          await writeFile('qa-reports/publication.json',JSON.stringify(result,null,2));
+          console.log(JSON.stringify(result));
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: upload-location-publication
+          path: qa-reports/
+          retention-days: 7
