@@ -14,6 +14,7 @@ const report = {
   ],
   pageErrors: [],
   networkErrors: [],
+  hostingTelemetry: [],
   authSettings: null,
 };
 const base = process.env.QA_BASE_URL || "http://127.0.0.1:4173";
@@ -97,8 +98,20 @@ try {
   await check("demo-login-enters-learner-dashboard", () => enterDemo(page));
   const writes = [];
   page.on("request", (request) => {
-    if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method()))
-      writes.push({ method: request.method(), path: new URL(request.url()).pathname });
+    if (!["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) return;
+    const url = new URL(request.url());
+    const entry = { method: request.method(), path: url.pathname };
+    // The published host injects analytics. Keep those separate from app mutations,
+    // but do not exempt any Supabase request, server function, or unknown endpoint.
+    if (
+      entry.method === "POST" &&
+      url.origin === new URL(base).origin &&
+      entry.path === "/__l5e/trackevents"
+    ) {
+      report.hostingTelemetry.push(entry);
+    } else {
+      writes.push(entry);
+    }
   });
   await check("desktop-dashboard", async () => {
     await page.getByRole("heading", { name: /Alex/ }).waitFor();

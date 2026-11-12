@@ -28,6 +28,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import { AuthProvider, isMemberBlocked, useAuth } from "@/lib/auth";
 import { approvalState } from "@/lib/approval";
+import { authRedirectUrl } from "@/lib/auth-redirect";
 import { createDemoPortalData, DEMO_EMAIL, DEMO_MEMBER_NAME, DEMO_USER_ID } from "@/lib/demo";
 import { supabase } from "@/integrations/supabase/client";
 import { AccessScreen } from "./AccessScreen";
@@ -563,7 +564,9 @@ function MemberPage({
           <button
             className="portal-outline mt-5"
             onClick={async () => {
-              const { error } = await supabase.auth.resetPasswordForEmail(profile?.email || "");
+              const { error } = await supabase.auth.resetPasswordForEmail(profile?.email || "", {
+                redirectTo: authRedirectUrl(window.location.origin),
+              });
               setFeedback(error?.message || "Confira seu e-mail para redefinir a senha.");
             }}
           >

@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
@@ -14,7 +15,7 @@ export const requestOwnerAccess = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { sendOwnerAccess } = await import("./owner.server");
-    return sendOwnerAccess(supabaseAdmin, data);
+    return sendOwnerAccess(supabaseAdmin, data, getRequest().url);
   });
 
 export const activateOwnerAccess = createServerFn({ method: "POST" })

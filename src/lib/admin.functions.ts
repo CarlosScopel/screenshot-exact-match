@@ -1,4 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
+import { getRequest } from "@tanstack/react-start/server";
+import { authRedirectUrl } from "@/lib/auth-redirect";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
@@ -86,7 +88,7 @@ export const inviteMentee = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: inv, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(data.email, {
       data: { full_name: data.name },
-      redirectTo: data.redirectTo,
+      redirectTo: authRedirectUrl(data.redirectTo, "invite"),
     });
     if (error || !inv.user) throw new Error(error?.message ?? "Não foi possível enviar o convite");
     const uid = inv.user.id;
@@ -175,6 +177,7 @@ export const reviewMentee = createServerFn({ method: "POST" })
         throw new Error("Acesso aprovado, mas não foi possível liberar a confirmação do e-mail.");
       const { error: emailError } = await supabaseAdmin.auth.resetPasswordForEmail(
         application.email,
+        { redirectTo: authRedirectUrl(getRequest().url) },
       );
       return { ok: true, needsPasswordEmail: !!emailError };
     }
@@ -193,13 +196,13 @@ export const resendInvite = createServerFn({ method: "POST" })
     const u = list?.users.find((x) => x.email?.toLowerCase() === data.email.toLowerCase());
     if (u?.email_confirmed_at || u?.last_sign_in_at) {
       const { error } = await supabaseAdmin.auth.resetPasswordForEmail(data.email, {
-        redirectTo: data.redirectTo,
+        redirectTo: authRedirectUrl(data.redirectTo),
       });
       if (error) throw new Error(error.message);
       return { kind: "reset" as const };
     }
     const { error } = await supabaseAdmin.auth.admin.inviteUserByEmail(data.email, {
-      redirectTo: data.redirectTo,
+      redirectTo: authRedirectUrl(data.redirectTo, "invite"),
     });
     if (error) throw new Error(error.message);
     return { kind: "invite" as const };
