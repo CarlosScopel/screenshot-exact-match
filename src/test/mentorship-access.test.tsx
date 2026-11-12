@@ -1,0 +1,98 @@
+import type { ReactNode } from "react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PortalApp } from "@/components/portal/Portal";
+import { createDemoPortalData } from "@/lib/demo";
+const mock = vi.hoisted(() => ({
+  load: vi.fn(),
+  account: {
+    status: "active",
+    legacy_expires_at: null as string | null,
+    plans: [] as { starts_at: string; ends_at: string }[],
+  },
+  error: "",
+  now: Date.parse("2026-11-12T12:00:00Z"),
+}));
+vi.mock("@/lib/portal", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/portal")>()),
+  loadPortalData: mock.load,
+}));
+vi.mock("@/lib/auth", () => ({
+  AuthProvider: ({ children }: { children: ReactNode }) => children,
+  isMemberBlocked: () => false,
+  useAuth: () => ({
+    session: { user: { id: "student", email: "student@example.test" } },
+    profile: { full_name: "Aluno", status: "active" },
+    isAdmin: false,
+    loading: false,
+    settings: null,
+    refresh: vi.fn(),
+    refreshSettings: vi.fn(),
+    requiresPasswordSetup: false,
+    clearPasswordSetup: vi.fn(),
+  }),
+}));
+vi.mock("@/lib/use-mentorship", () => ({
+  useMentorshipAccount: () => ({
+    account: mock.account,
+    error: mock.error,
+    loading: false,
+    now: mock.now,
+    refresh: vi.fn(),
+  }),
+}));
+vi.mock("@/components/portal/MentorshipPanel", () => ({
+  MentorshipPanel: () => <div>Pagamentos privados disponíveis</div>,
+}));
+vi.mock("@/components/portal/AdminPage", () => ({ AdminPage: () => null }));
+vi.mock("@/components/portal/AccessScreen", () => ({ AccessScreen: () => null }));
+vi.mock("@/lib/media", () => ({
+  useMedia: () => null,
+  openMaterial: vi.fn(),
+  uploadMaterial: vi.fn(),
+  uploadMedia: vi.fn(),
+}));
+beforeEach(() => {
+  vi.clearAllMocks();
+  mock.load.mockResolvedValue(createDemoPortalData());
+  mock.account = { status: "active", legacy_expires_at: null, plans: [] };
+  mock.error = "";
+});
+afterEach(cleanup);
+describe("Bloqueio dos conteúdos por prazo", () => {
+  it("não carrega conteúdos para plano vencido, mas permite consulta financeira", () => {
+    mock.account.plans = [{ starts_at: "2026-01-01T03:00:00Z", ends_at: "2026-02-01T03:00:00Z" }];
+    render(<PortalApp />);
+    expect(screen.getByText("Acesso indisponível")).toBeInTheDocument();
+    expect(mock.load).not.toHaveBeenCalled();
+    expect(screen.getByText("Pagamentos privados disponíveis")).toBeInTheDocument();
+  });
+  it("não libera conteúdo antes do início", () => {
+    mock.account.plans = [{ starts_at: "2027-01-01T03:00:00Z", ends_at: "2028-01-01T03:00:00Z" }];
+    render(<PortalApp />);
+    expect(screen.getByText("Acesso indisponível")).toBeInTheDocument();
+    expect(mock.load).not.toHaveBeenCalled();
+  });
+  it("falha de verificação não libera conteúdo em cache", () => {
+    mock.error = "Falha de conexão";
+    render(<PortalApp />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Falha de conexão");
+    expect(mock.load).not.toHaveBeenCalled();
+  });
+  it("mantém conteúdo permitido e oferece a página do plano", async () => {
+    render(<PortalApp />);
+    await waitFor(() => expect(mock.load).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Meu plano e pagamentos" }));
+    expect(screen.getByText("Pagamentos privados disponíveis")).toBeInTheDocument();
+  });
+  it("remove conteúdo já aberto quando o relógio passa do vencimento", async () => {
+    mock.account.plans = [{ starts_at: "2026-01-01T03:00:00Z", ends_at: "2026-11-12T12:00:01Z" }];
+    const view = render(<PortalApp />);
+    await waitFor(() => expect(mock.load).toHaveBeenCalled());
+    mock.now = Date.parse("2026-11-12T12:00:01Z");
+    view.rerender(<PortalApp />);
+    expect(screen.getByText("Acesso indisponível")).toBeInTheDocument();
+    expect(screen.queryByText("Seus treinamentos")).not.toBeInTheDocument();
+    mock.now = Date.parse("2026-11-12T12:00:00Z");
+  });
+});

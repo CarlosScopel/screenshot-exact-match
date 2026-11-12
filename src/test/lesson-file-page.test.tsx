@@ -24,6 +24,15 @@ vi.mock("@/lib/auth", () => ({
     clearPasswordSetup: vi.fn(),
   }),
 }));
+vi.mock("@/lib/use-mentorship", () => ({
+  useMentorshipAccount: () => ({
+    account: { user_id: "student", status: "active", plans: [], legacy_expires_at: null },
+    error: "",
+    loading: false,
+    now: Date.now(),
+    refresh: vi.fn(),
+  }),
+}));
 vi.mock("@/components/portal/AdminPage", () => ({ AdminPage: () => null }));
 vi.mock("@/components/portal/AccessScreen", () => ({ AccessScreen: () => null }));
 vi.mock("@/components/portal/LessonFiles", () => ({

@@ -34,6 +34,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { AccessScreen } from "./AccessScreen";
 import { AdminPage } from "./AdminPage";
 import { LessonFiles } from "./LessonFiles";
+import { MentorshipPanel } from "./MentorshipPanel";
+import { accountCanAccess } from "@/lib/mentorship";
+import { useMentorshipAccount } from "@/lib/use-mentorship";
 import { inviteMentee } from "@/lib/admin.functions";
 import { openMaterial, uploadMaterial, uploadMedia, useMedia } from "@/lib/media";
 import {
@@ -56,6 +59,7 @@ type View =
   | "tools"
   | "announcements"
   | "profile"
+  | "billing"
   | "admin"
   | "manage-trainings"
   | "manage-library"
@@ -71,6 +75,7 @@ const navStudent: { id: View; name: string; icon: typeof BookOpen }[] = [
   { id: "library", name: "Biblioteca", icon: Library },
   { id: "tools", name: "Ferramentas", icon: Wrench },
   { id: "announcements", name: "Comunicados", icon: Megaphone },
+  { id: "billing", name: "Meu plano e pagamentos", icon: FileText },
   { id: "profile", name: "Meu perfil", icon: Users },
 ];
 const navAdmin: { id: View; name: string; icon: typeof BookOpen }[] = [
@@ -181,8 +186,16 @@ function Portal() {
   }, [favicon]);
 
   const currentUserId = session?.user.id;
+  const membership = useMentorshipAccount(
+    currentUserId || null,
+    !!currentUserId && !isAdmin && !demo && !loading,
+  );
+  const memberAllowed =
+    !!membership.account &&
+    !membership.error &&
+    accountCanAccess(membership.account, membership.now);
   const dataRequest = useRef(0);
-  const canLoad = !!currentUserId && (isAdmin || !isMemberBlocked(profile));
+  const canLoad = !!currentUserId && (isAdmin || memberAllowed);
   const reload = useCallback(async () => {
     const request = ++dataRequest.current;
     if (!currentUserId || !canLoad) {
@@ -268,9 +281,25 @@ function Portal() {
         }}
       />
     );
-  if (!demo && isMemberBlocked(profile) && !isAdmin)
+  if (!demo && !isAdmin && session && (!membership.account || membership.error))
     return (
-      <div className="min-h-screen grid place-content-center text-center p-6">
+      <div className="min-h-screen grid place-content-center p-6 text-center">
+        <p role={membership.error ? "alert" : "status"}>
+          {membership.error || "Verificando prazo da mentoria..."}
+        </p>
+        {membership.error && (
+          <button className="portal-outline mt-4" onClick={() => void membership.refresh()}>
+            Tentar novamente
+          </button>
+        )}
+        <button className="portal-outline mt-4" onClick={() => void supabase.auth.signOut()}>
+          Sair
+        </button>
+      </div>
+    );
+  if (!demo && !memberAllowed && !isAdmin)
+    return (
+      <div className="min-h-screen max-w-5xl mx-auto text-center p-6">
         <Shield className="size-10 mx-auto text-destructive mb-4" />
         <h1 className="text-2xl font-semibold">Acesso indisponível</h1>
         <p className="text-muted-foreground mt-2 max-w-md">
@@ -282,6 +311,11 @@ function Portal() {
                 ? "Sua solicitação de acesso foi recusada pelo administrador."
                 : "Sua conta está suspensa ou o acesso expirou. Fale com o suporte."}
         </p>
+        {currentUserId && membership.account?.status === "active" && (
+          <div className="mt-6">
+            <MentorshipPanel key={currentUserId} userId={currentUserId} />
+          </div>
+        )}
         <button
           className="portal-outline mx-auto mt-6"
           onClick={() => void supabase.auth.signOut()}
@@ -518,6 +552,15 @@ function MemberPage({
   const available = data.trainings.filter((t) => isAdmin || t.status === "published");
   const lessons = data.lessons.filter((l) => isAdmin || l.status === "published");
   const completed = data.progress.filter((p) => p.completed).length;
+  if (page === "billing")
+    return demo ? (
+      <Empty
+        title="Meu plano e pagamentos"
+        description="Os dados financeiros reais ficam disponíveis somente na conta autenticada do mentorado."
+      />
+    ) : (
+      <MentorshipPanel key={userId} userId={userId} />
+    );
   if (page === "profile" && demo)
     return (
       <div>

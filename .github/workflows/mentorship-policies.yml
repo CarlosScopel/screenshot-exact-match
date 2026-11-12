@@ -1,0 +1,45 @@
+name: Mentorship billing policies
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  billing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated_test_only
+          POSTGRES_DB: ordem_billing_qa
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: isolated_test_only
+      PGDATABASE: ordem_billing_qa
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate terms, money and private evidence in disposable PostgreSQL
+        run: |
+          mkdir -p qa-reports
+          psql -v ON_ERROR_STOP=1 -f scripts/validate-mentorship.sql 2>&1 | tee qa-reports/mentorship-policies.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mentorship-policy-evidence
+          path: qa-reports/
+          retention-days: 7
