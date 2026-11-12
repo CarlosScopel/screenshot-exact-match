@@ -1,0 +1,75 @@
+name: Recordings student experience verified
+on:
+  push:
+    branches: ['qa/recordings-student-experience-20261112']
+    paths: ['.github/workflows/recordings-student-ui-verified.yml']
+permissions:
+  contents: write
+defaults:
+  run:
+    shell: bash
+jobs:
+  experience:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Prepare inspected patch with explicit boundary types
+        run: |
+          bun install --frozen-lockfile
+          mkdir -p qa-reports
+          python3 scripts/qa-recordings-student-ui.py
+          python3 <<'PY'
+          from pathlib import Path
+          p=Path('src/components/portal/RecordingsPanel.tsx')
+          s=p.read_text()
+          old='previous?: CallRecording; next?: CallRecording;'
+          assert s.count(old)==1
+          p.write_text(s.replace(old,'previous: CallRecording | undefined; next: CallRecording | undefined;'))
+          workflow=Path('.github/workflows/recordings-student-ui.yml').read_text()
+          import textwrap
+          start=workflow.index('          export PLAYWRIGHT_PATH=')
+          end=workflow.index('      - name: Preserve exactly tested',start)
+          Path('/tmp/recordings-student-browser.sh').write_text(textwrap.dedent(workflow[start:end]))
+          PY
+          bunx prettier --write src/components/portal/RecordingsPanel.tsx src/test/recordings-panel.test.tsx
+          git diff --check
+          git diff --stat | tee qa-reports/diff-stat.txt
+          git diff -- src/components/portal/RecordingsPanel.tsx src/test/recordings-panel.test.tsx > qa-reports/change.diff
+      - name: TypeScript
+        run: bunx tsc --noEmit 2>&1 | tee qa-reports/typescript.log
+      - name: All unit and component tests
+        run: bun run test --reporter=default --reporter=json --outputFile=qa-reports/vitest.json 2>&1 | tee qa-reports/tests.log
+      - name: Lint modified source and tests
+        run: bunx eslint src/components/portal/RecordingsPanel.tsx src/test/recordings-panel.test.tsx 2>&1 | tee qa-reports/lint.log
+      - name: Production build
+        run: bun run build 2>&1 | tee qa-reports/build.log
+      - name: Isolated browser tooling
+        run: |
+          npm install --prefix "$RUNNER_TEMP/browser" --no-save --package-lock=false playwright
+          node "$RUNNER_TEMP/browser/node_modules/playwright/cli.js" install --with-deps chromium
+          command -v ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y ffmpeg >/dev/null)
+          ffmpeg -f lavfi -i color=c=0x152337:s=640x360:d=5 -c:v libvpx -b:v 120k -an qa-fixture.webm -loglevel error
+      - name: Desktop mobile playback sequence keyboard and private notes
+        run: bash /tmp/recordings-student-browser.sh
+      - name: Preserve verified files on QA branch only
+        run: |
+          test "$GITHUB_REF_NAME" = 'qa/recordings-student-experience-20261112'
+          git config user.name 'A ORDEM QA'
+          git config user.email 'qa@a-ordem.invalid'
+          git add src/components/portal/RecordingsPanel.tsx src/test/recordings-panel.test.tsx
+          git commit -m 'qa: preserve verified learner recordings layout'
+          git push origin HEAD:"$GITHUB_REF_NAME"
+          git rev-parse HEAD > qa-reports/tested-commit.txt
+          git ls-tree HEAD src/components/portal/RecordingsPanel.tsx src/test/recordings-panel.test.tsx > qa-reports/tested-files.txt
+          tar -czf qa-reports/tested-source.tar.gz src/components/portal/RecordingsPanel.tsx src/test/recordings-panel.test.tsx
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recordings-student-experience-evidence
+          path: qa-reports/
+          retention-days: 7
