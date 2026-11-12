@@ -1,0 +1,63 @@
+name: Confirm published lesson file viewer
+on:
+  push:
+    branches: ['qa/lesson-file-preview-20261112']
+    paths: ['.github/workflows/file-preview-public.yml']
+permissions:
+  contents: read
+jobs:
+  published:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Isolated read-only browser tooling
+        run: |
+          npm install --prefix "$RUNNER_TEMP/browser" --no-save --package-lock=false playwright
+          node "$RUNNER_TEMP/browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Verify the deployed viewer without reading private files or changing data
+        env:
+          QA_BASE_URL: https://pixel-perfect-replay-54723.lovable.app
+        run: |
+          PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/browser/node_modules/playwright/index.mjs" node --input-type=module <<'JS'
+          import { pathToFileURL } from 'node:url';
+          import { writeFile, mkdir } from 'node:fs/promises';
+          import { createHash } from 'node:crypto';
+          const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE_PATH).href);
+          const browser = await chromium.launch({headless:true});
+          const report = {target:process.env.QA_BASE_URL, inspectedCommit:'d6f914579497278376e3b209b2e3ad2f1cb386af', viewerFound:false, privateDataRead:false, productionMutations:false, assets:[]};
+          await mkdir('qa-reports',{recursive:true});
+          try {
+            const page = await browser.newPage();
+            for (let attempt = 0; attempt < 12 && !report.viewerFound; attempt++) {
+              const response = await page.goto(process.env.QA_BASE_URL,{waitUntil:'networkidle',timeout:60000});
+              report.csp = response.headers()['content-security-policy'] ?? null;
+              if (report.csp && /object-src\s+'none'/.test(report.csp)) throw new Error('Published CSP prohibits document objects');
+              await page.getByRole('button',{name:'Entrar na plataforma',exact:true}).waitFor({timeout:30000});
+              const urls = await page.evaluate(() => [...new Set(performance.getEntriesByType('resource').map(entry => entry.name).filter(url => /\.js(?:\?|$)/.test(url)))]);
+              for (const url of urls) {
+                if (new URL(url).origin !== new URL(process.env.QA_BASE_URL).origin) continue;
+                const response = await page.request.get(url);
+                if (!response.ok()) continue;
+                const code = await response.text();
+                const viewerFound = code.includes('Arquivos da aula') && code.includes('application/pdf') && code.includes('revokeObjectURL');
+                if (viewerFound) {
+                  report.viewerFound = true;
+                  report.assets.push({path:new URL(url).pathname,sha256:createHash('sha256').update(code).digest('hex')});
+                }
+              }
+              if (!report.viewerFound) await page.waitForTimeout(5000);
+            }
+            report.browserPdfViewer = await page.evaluate(() => navigator.pdfViewerEnabled);
+            if (!report.viewerFound) throw new Error('Viewer code not found in published assets');
+          } catch(error) { report.error=String(error); process.exitCode=1; }
+          finally { await writeFile('qa-reports/published-file-viewer.json',JSON.stringify(report,null,2)); await browser.close(); }
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: published-file-viewer-evidence
+          path: qa-reports/
+          retention-days: 7
