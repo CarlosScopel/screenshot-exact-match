@@ -33,17 +33,18 @@ export function materialPreviewType(path?: string | null): MaterialPreviewType |
 }
 
 export type MaterialPreview =
-  | { kind: "text"; text: string }
-  | { kind: "pdf" | "image" | "audio" | "video"; blob: Blob };
+  { kind: "text"; text: string } | { kind: "pdf" | "image" | "audio" | "video"; blob: Blob };
 
 /** Fetch privately using the current user's session and existing storage access policies. */
 export async function loadMaterialPreview(path: string): Promise<MaterialPreview> {
   const format = materialPreviewType(path);
   if (!format) throw new Error("Este formato não possui visualização integrada.");
   const { data, error } = await supabase.storage.from("materials").download(path);
-  if (error || !data) throw new Error("Não foi possível abrir o arquivo. Verifique seu acesso e tente novamente.");
+  if (error || !data)
+    throw new Error("Não foi possível abrir o arquivo. Verifique seu acesso e tente novamente.");
   const limit = format.kind === "text" ? 2 * 1024 * 1024 : 50 * 1024 * 1024;
-  if (data.size > limit) throw new Error("Este arquivo é muito grande para a visualização. Use o botão de download.");
+  if (data.size > limit)
+    throw new Error("Este arquivo é muito grande para a visualização. Use o botão de download.");
   if (format.kind === "text") return { kind: "text", text: await data.text() };
   if (format.kind === "pdf" && !(await data.slice(0, 1024).text()).includes("%PDF-")) {
     throw new Error("O arquivo não é um PDF válido. Confira o arquivo enviado.");

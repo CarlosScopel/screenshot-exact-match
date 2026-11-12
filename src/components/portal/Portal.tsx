@@ -33,6 +33,7 @@ import { createDemoPortalData, DEMO_EMAIL, DEMO_MEMBER_NAME, DEMO_USER_ID } from
 import { supabase } from "@/integrations/supabase/client";
 import { AccessScreen } from "./AccessScreen";
 import { AdminPage } from "./AdminPage";
+import { LessonFiles } from "./LessonFiles";
 import { inviteMentee } from "@/lib/admin.functions";
 import { openMaterial, uploadMaterial, uploadMedia, useMedia } from "@/lib/media";
 import {
@@ -935,6 +936,7 @@ function LessonPage({
       <Empty title="Aula indisponível" description="A aula não foi liberada para sua conta." />
     );
   const source = videoSource(lesson.video_url);
+  const lessonMaterials = data.materials.filter((material) => material.lesson_id === id);
   const siblings = data.lessons.filter(
     (l) => l.module_id === module.id && l.status === "published",
   );
@@ -969,41 +971,45 @@ function LessonPage({
       </button>
       <div className="grid xl:grid-cols-[minmax(0,1fr)_290px] gap-6">
         <div className="min-w-0 space-y-6">
-          <div className="aspect-video bg-black rounded-2xl border overflow-hidden flex items-center justify-center">
-            {source?.kind === "iframe" ? (
-              <iframe
-                className="w-full h-full"
-                title={lesson.title}
-                src={source.src}
-                allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-                allowFullScreen
-              />
-            ) : source?.kind === "video" ? (
-              <video
-                controls
-                className="w-full"
-                src={source.src}
-                onPause={(e) =>
-                  void saveProgress(!!existing?.completed, e.currentTarget.currentTime)
-                }
-                onLoadedMetadata={(e) => {
-                  if (existing?.position_seconds)
-                    e.currentTarget.currentTime = existing.position_seconds;
-                }}
-              />
-            ) : source?.kind === "external" ? (
-              <a
-                className="portal-button"
-                href={source.src}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Assistir no player externo <ExternalLink className="size-4" />
-              </a>
-            ) : (
-              <span className="text-muted-foreground">Vídeo não configurado</span>
-            )}
-          </div>
+          {!source && lessonMaterials.length > 0 ? (
+            <LessonFiles materials={lessonMaterials} />
+          ) : (
+            <div className="aspect-video bg-black rounded-2xl border overflow-hidden flex items-center justify-center">
+              {source?.kind === "iframe" ? (
+                <iframe
+                  className="w-full h-full"
+                  title={lesson.title}
+                  src={source.src}
+                  allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+                  allowFullScreen
+                />
+              ) : source?.kind === "video" ? (
+                <video
+                  controls
+                  className="w-full"
+                  src={source.src}
+                  onPause={(e) =>
+                    void saveProgress(!!existing?.completed, e.currentTarget.currentTime)
+                  }
+                  onLoadedMetadata={(e) => {
+                    if (existing?.position_seconds)
+                      e.currentTarget.currentTime = existing.position_seconds;
+                  }}
+                />
+              ) : source?.kind === "external" ? (
+                <a
+                  className="portal-button"
+                  href={source.src}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Assistir no player externo <ExternalLink className="size-4" />
+                </a>
+              ) : (
+                <span className="text-muted-foreground">Vídeo não configurado</span>
+              )}
+            </div>
+          )}
           <section className="surface p-6">
             <p className="text-xs text-primary">{module.title}</p>
             <h1 className="text-2xl font-semibold mt-2">{lesson.title}</h1>
@@ -1063,22 +1069,7 @@ function LessonPage({
               Salvar anotação
             </button>
           </section>
-          {data.materials
-            .filter((m) => m.lesson_id === id)
-            .map((m) => (
-              <button
-                key={m.id}
-                className="portal-outline mr-3"
-                onClick={() =>
-                  m.file_path
-                    ? void openMaterial(m.file_path).catch((e) => setNotice(String(e)))
-                    : safeHttps(m.url) && window.open(m.url!, "_blank", "noopener,noreferrer")
-                }
-              >
-                <Download className="size-4" />
-                {m.title}
-              </button>
-            ))}
+          {source && lessonMaterials.length > 0 && <LessonFiles materials={lessonMaterials} />}
         </div>
         <aside className="surface p-5 h-fit">
           <h3 className="font-semibold">Aulas do módulo</h3>

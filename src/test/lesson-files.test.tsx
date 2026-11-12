@@ -5,38 +5,73 @@ import { LessonFiles } from "@/components/portal/LessonFiles";
 import { loadMaterialPreview, materialPreviewType } from "@/lib/material-preview";
 import type { Tables } from "@/integrations/supabase/types";
 
-const mock = vi.hoisted(() => ({ from: vi.fn(), download: vi.fn(), open: vi.fn(), create: vi.fn(), revoke: vi.fn() }));
+const mock = vi.hoisted(() => ({
+  from: vi.fn(),
+  download: vi.fn(),
+  open: vi.fn(),
+  create: vi.fn(),
+  revoke: vi.fn(),
+}));
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { storage: { from: mock.from } } }));
 vi.mock("@/lib/media", () => ({ openMaterial: mock.open }));
 const OriginalURL = globalThis.URL;
 const pdf = () => new Blob(["%PDF-1.7\nTest document"], { type: "application/octet-stream" });
 function material(id: string, extension: string): Tables<"lesson_materials"> {
-  return { id, lesson_id: "lesson-1", title: `Material ${id}`, file_path: `lesson/lesson-1/${id}.${extension}`, url: null, position: 0, created_at: "2026-11-12T00:00:00Z" };
+  return {
+    id,
+    lesson_id: "lesson-1",
+    title: `Material ${id}`,
+    file_path: `lesson/lesson-1/${id}.${extension}`,
+    url: null,
+    position: 0,
+    created_at: "2026-11-12T00:00:00Z",
+  };
 }
 beforeEach(() => {
   vi.resetAllMocks();
   vi.stubGlobal("Blob", NodeBlob);
-  vi.stubGlobal("URL", class extends OriginalURL {
-    static createObjectURL = mock.create;
-    static revokeObjectURL = mock.revoke;
-  });
+  vi.stubGlobal(
+    "URL",
+    class extends OriginalURL {
+      static override createObjectURL = mock.create;
+      static override revokeObjectURL = mock.revoke;
+    },
+  );
   mock.from.mockReturnValue({ download: mock.download });
   mock.download.mockResolvedValue({ data: pdf(), error: null });
   mock.open.mockResolvedValue(undefined);
   let number = 0;
   mock.create.mockImplementation(() => `blob:preview-${++number}`);
 });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe("Tipos e acesso privado aos arquivos de aula", () => {
   it.each([
-    ["pdf", "pdf"], ["PDF", "pdf"], ["png", "image"], ["jpeg", "image"],
-    ["webp", "image"], ["txt", "text"], ["md", "text"], ["csv", "text"],
-    ["mp3", "audio"], ["mp4", "video"],
+    ["pdf", "pdf"],
+    ["PDF", "pdf"],
+    ["png", "image"],
+    ["jpeg", "image"],
+    ["webp", "image"],
+    ["txt", "text"],
+    ["md", "text"],
+    ["csv", "text"],
+    ["mp3", "audio"],
+    ["mp4", "video"],
   ])("reconhece %s para visualização %s", (extension, kind) => {
     expect(materialPreviewType(`lesson/id/arquivo.${extension}`)?.kind).toBe(kind);
   });
-  it.each(["lesson/id/file.html", "lesson/id/file.svg", "lesson/id/file.docx", "lesson/id/file.zip", "https://example.com/file.pdf", null])("não incorpora formato ou endereço não permitido: %s", (path) => {
+  it.each([
+    "lesson/id/file.html",
+    "lesson/id/file.svg",
+    "lesson/id/file.docx",
+    "lesson/id/file.zip",
+    "https://example.com/file.pdf",
+    null,
+  ])("não incorpora formato ou endereço não permitido: %s", (path) => {
     expect(materialPreviewType(path)).toBeNull();
   });
   it("busca no bucket privado, com as permissões da sessão, e normaliza o tipo PDF", async () => {
@@ -62,7 +97,10 @@ describe("Tipos e acesso privado aos arquivos de aula", () => {
     expect(mock.create).not.toHaveBeenCalled();
   });
   it("limita textos grandes antes de tentar renderizá-los", async () => {
-    mock.download.mockResolvedValue({ data: new Blob([new Uint8Array(2 * 1024 * 1024 + 1)]), error: null });
+    mock.download.mockResolvedValue({
+      data: new Blob([new Uint8Array(2 * 1024 * 1024 + 1)]),
+      error: null,
+    });
     await expect(loadMaterialPreview("lesson/id/test.txt")).rejects.toThrow("muito grande");
   });
 });
@@ -73,7 +111,10 @@ describe("Visualizador de arquivos do mentorado", () => {
     const object = await screen.findByTitle("Visualização de Material one");
     expect(object).toHaveAttribute("data", "blob:preview-1");
     expect(object).toHaveAttribute("type", "application/pdf");
-    expect(screen.getByRole("link", { name: "Abrir em nova aba" })).toHaveAttribute("href", "blob:preview-1");
+    expect(screen.getByRole("link", { name: "Abrir em nova aba" })).toHaveAttribute(
+      "href",
+      "blob:preview-1",
+    );
     expect(mock.open).not.toHaveBeenCalled();
     unmount();
     expect(mock.revoke).toHaveBeenCalledWith("blob:preview-1");
@@ -85,9 +126,14 @@ describe("Visualizador de arquivos do mentorado", () => {
     await waitFor(() => expect(mock.open).toHaveBeenCalledWith("lesson/lesson-1/one.pdf"));
   });
   it("mostra texto como texto, sem executar HTML", async () => {
-    mock.download.mockResolvedValue({ data: new Blob(["<script>alert(1)</script>\nAula em texto"]), error: null });
+    mock.download.mockResolvedValue({
+      data: new Blob(["<script>alert(1)</script>\nAula em texto"]),
+      error: null,
+    });
     const { container } = render(<LessonFiles materials={[material("text", "txt")]} />);
-    expect(await screen.findByLabelText("Conteúdo de Material text")).toHaveTextContent("<script>alert(1)</script>");
+    expect(await screen.findByLabelText("Conteúdo de Material text")).toHaveTextContent(
+      "<script>alert(1)</script>",
+    );
     expect(container.querySelector("script")).toBeNull();
     expect(mock.create).not.toHaveBeenCalled();
   });
@@ -95,8 +141,13 @@ describe("Visualizador de arquivos do mentorado", () => {
     render(<LessonFiles materials={[material("one", "pdf"), material("two", "png")]} />);
     await screen.findByTitle("Visualização de Material one");
     mock.download.mockResolvedValue({ data: new Blob(["image bytes"]), error: null });
-    fireEvent.change(screen.getByRole("combobox", { name: "Arquivo da aula" }), { target: { value: "two" } });
-    expect(await screen.findByRole("img", { name: "Material two" })).toHaveAttribute("src", "blob:preview-2");
+    fireEvent.change(screen.getByRole("combobox", { name: "Arquivo da aula" }), {
+      target: { value: "two" },
+    });
+    expect(await screen.findByRole("img", { name: "Material two" })).toHaveAttribute(
+      "src",
+      "blob:preview-2",
+    );
     expect(screen.queryByTitle("Visualização de Material one")).not.toBeInTheDocument();
     expect(mock.revoke).toHaveBeenCalledWith("blob:preview-1");
   });
@@ -121,7 +172,11 @@ describe("Visualizador de arquivos do mentorado", () => {
   });
   it("não recria URL de arquivo que terminou de carregar depois de sair da aula", async () => {
     let resolve: (value: { data: Blob; error: null }) => void = () => {};
-    mock.download.mockReturnValue(new Promise((done) => { resolve = done; }));
+    mock.download.mockReturnValue(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
     const { unmount } = render(<LessonFiles materials={[material("one", "pdf")]} />);
     unmount();
     resolve({ data: pdf(), error: null });
@@ -129,8 +184,17 @@ describe("Visualizador de arquivos do mentorado", () => {
     expect(mock.create).not.toHaveBeenCalled();
   });
   it("mantém links externos fora do visualizador privado", () => {
-    render(<LessonFiles materials={[{ ...material("link", "pdf"), file_path: null, url: "https://example.com/material" }]} />);
-    expect(screen.getByRole("link", { name: "Abrir material" })).toHaveAttribute("rel", "noopener noreferrer");
+    render(
+      <LessonFiles
+        materials={[
+          { ...material("link", "pdf"), file_path: null, url: "https://example.com/material" },
+        ]}
+      />,
+    );
+    expect(screen.getByRole("link", { name: "Abrir material" })).toHaveAttribute(
+      "rel",
+      "noopener noreferrer",
+    );
     expect(mock.download).not.toHaveBeenCalled();
   });
 });
