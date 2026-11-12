@@ -1,0 +1,134 @@
+
+describe("Materiais complementares no módulo selecionado", () => {
+  beforeEach(() => {
+    reload.mockImplementation(async () => {});
+    mock.upload.mockImplementation(async (_file: File, scope: string, id: string) => `${scope}/${id}/checklist.pdf`);
+  });
+  function openMaterials(empty = false) {
+    const p = props();
+    if (empty) p.data.lessons = p.data.lessons.filter((l) => l.module_id !== "demo-module-1");
+    const view = render(<AdminPage page="manage-trainings" {...p} />);
+    fireEvent.click(screen.getAllByRole("button", { name: "Abrir" })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Abrir" })[0]!);
+    return { p, view };
+  }
+  function attachFile() {
+    const file = new File(["material de teste"], "checklist.pdf", { type: "application/pdf" });
+    const input = screen.getByLabelText("Arquivo");
+    fireEvent.change(input, { target: { files: [file] } });
+    const NativeFormData = globalThis.FormData;
+    vi.stubGlobal("FormData", class extends NativeFormData {
+      constructor(form?: HTMLFormElement) {
+        super(form);
+        if (form?.contains(input)) this.set("file", file);
+      }
+    });
+    return { file, form: input.closest("form")! };
+  }
+  it("oferece criar a primeira aula, em vez de deixar um seletor vazio clicável", () => {
+    openMaterials(true);
+    expect(screen.getByLabelText("Aula do material")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Enviar arquivo" })).toBeDisabled();
+    expect(screen.getByLabelText("Arquivo")).toBeDisabled();
+    expect(screen.getByText(/Este módulo ainda não tem aulas/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Criar aula neste módulo" }));
+    expect(screen.getByRole("heading", { name: "Criar aula para anexar material" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Título da aula")).toBeInTheDocument();
+    expect(mock.from).not.toHaveBeenCalled();
+    expect(mock.upload).not.toHaveBeenCalled();
+  });
+  it("cria uma aula em rascunho no módulo, seleciona e permite anexar o material", async () => {
+    const q = query();
+    mock.from.mockReturnValue(q);
+    const { p, view } = openMaterials(true);
+    reload.mockImplementationOnce(async () => {
+      p.data = {
+        ...p.data,
+        lessons: [...p.data.lessons, {
+          ...createDemoPortalData().lessons[0]!,
+          id: uid, module_id: "demo-module-1", title: "Aula para material", status: "draft",
+        }],
+      };
+      view.rerender(<AdminPage page="manage-trainings" {...p} />);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Criar aula neste módulo" }));
+    fireEvent.change(screen.getByLabelText("Título da aula"), { target: { value: "Aula para material" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar alterações" }));
+    await waitFor(() => expect(screen.getByLabelText("Aula do material")).toHaveValue(uid));
+    expect(q.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      module_id: "demo-module-1", title: "Aula para material", status: "draft", video_url: null,
+    }));
+    expect(screen.queryByRole("heading", { name: "Criar aula para anexar material" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Enviar arquivo" })).toBeEnabled();
+    const { file, form } = attachFile();
+    fireEvent.submit(form);
+    await screen.findByText("Material adicionado.");
+    expect(mock.upload).toHaveBeenCalledWith(file, "lesson", uid);
+    expect(q.insert).toHaveBeenCalledWith({
+      lesson_id: uid, title: "checklist.pdf", file_path: `lesson/${uid}/checklist.pdf`,
+    });
+    expect(screen.getByLabelText("Aula do material")).toHaveValue(uid);
+  });
+  it("mantém a criação aberta quando o banco rejeita a nova aula", async () => {
+    mock.from.mockReturnValue(query({ data: { id: uid }, error: new Error("Não foi possível criar a aula") }));
+    openMaterials(true);
+    fireEvent.click(screen.getByRole("button", { name: "Criar aula neste módulo" }));
+    fireEvent.change(screen.getByLabelText("Título da aula"), { target: { value: "Nova aula" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar alterações" }));
+    await screen.findByText("Não foi possível criar a aula");
+    expect(screen.getByLabelText("Título da aula")).toHaveValue("Nova aula");
+    expect(screen.getByRole("button", { name: "Enviar arquivo" })).toBeDisabled();
+    expect(mock.upload).not.toHaveBeenCalled();
+  });
+  it("lista apenas as aulas do módulo e exige seleção antes de enviar", async () => {
+    openMaterials();
+    const select = screen.getByLabelText("Aula do material");
+    expect(select).toHaveValue("");
+    expect(screen.getByRole("option", { name: "Organizando sua Jornada" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Estrutura de uma Operação" })).not.toBeInTheDocument();
+    const { form } = attachFile();
+    fireEvent.submit(form);
+    await screen.findByText(/Selecione uma aula deste módulo antes de enviar/);
+    expect(mock.upload).not.toHaveBeenCalled();
+    expect(mock.from).not.toHaveBeenCalled();
+  });
+  it("anexa à aula selecionada e preserva a seleção após o envio", async () => {
+    const q = query();
+    mock.from.mockReturnValue(q);
+    openMaterials();
+    fireEvent.change(screen.getByLabelText("Aula do material"), { target: { value: "demo-lesson-2" } });
+    fireEvent.change(screen.getByPlaceholderText("Título do material"), { target: { value: "  Checklist  " } });
+    const { file, form } = attachFile();
+    fireEvent.submit(form);
+    await screen.findByText("Material adicionado.");
+    expect(mock.upload).toHaveBeenCalledWith(file, "lesson", "demo-lesson-2");
+    expect(q.insert).toHaveBeenCalledWith(expect.objectContaining({ lesson_id: "demo-lesson-2", title: "Checklist" }));
+    expect(screen.getByLabelText("Aula do material")).toHaveValue("demo-lesson-2");
+    expect(screen.getByPlaceholderText("Título do material")).toHaveValue("");
+  });
+  it("mantém os dados preenchidos para tentar novamente se o upload falhar", async () => {
+    mock.upload.mockRejectedValueOnce(new Error("Upload indisponível"));
+    openMaterials();
+    fireEvent.change(screen.getByLabelText("Aula do material"), { target: { value: "demo-lesson-2" } });
+    fireEvent.change(screen.getByPlaceholderText("Título do material"), { target: { value: "Meu material" } });
+    const { form } = attachFile();
+    fireEvent.submit(form);
+    await screen.findByText(/Upload indisponível/);
+    expect(screen.getByLabelText("Aula do material")).toHaveValue("demo-lesson-2");
+    expect(screen.getByPlaceholderText("Título do material")).toHaveValue("Meu material");
+    expect(screen.getByRole("button", { name: "Enviar arquivo" })).toBeEnabled();
+    expect(mock.from).not.toHaveBeenCalled();
+    fireEvent.submit(form);
+    await screen.findByText("Material adicionado.");
+  });
+  it("descarta a seleção anterior ao trocar de módulo e seleciona sua única aula", () => {
+    openMaterials();
+    fireEvent.change(screen.getByLabelText("Aula do material"), { target: { value: "demo-lesson-2" } });
+    fireEvent.change(screen.getByPlaceholderText("Título do material"), { target: { value: "Outro módulo" } });
+    fireEvent.click(screen.getByRole("button", { name: "Módulos", exact: true }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Abrir" })[1]!);
+    expect(screen.getByLabelText("Aula do material")).toHaveValue("demo-lesson-3");
+    expect(screen.getByPlaceholderText("Título do material")).toHaveValue("");
+    expect(screen.queryByRole("option", { name: "Organizando sua Jornada" })).not.toBeInTheDocument();
+  });
+});

@@ -1,0 +1,71 @@
+name: Validate lesson materials fix
+on:
+  push:
+    branches: ['qa/lesson-materials-20261112']
+    paths: ['.github/workflows/materials-qa.yml', 'scripts/qa-materials-*']
+  workflow_dispatch:
+permissions:
+  contents: write
+defaults:
+  run:
+    shell: bash
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Install existing locked dependencies
+        run: bun install --frozen-lockfile
+      - name: Add regression tests to the inspected baseline
+        run: |
+          mkdir -p qa-materials-reports
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          const path='src/test/admin-ui.test.tsx';
+          if(execFileSync('git',['hash-object',path],{encoding:'utf8'}).trim()!=='65d6c4db8921c29bbaeaa319efca9f0381cc05ca') throw new Error('Test baseline changed');
+          fs.appendFileSync(path,fs.readFileSync('scripts/qa-materials-tests.txt','utf8'));
+          JS
+      - name: Confirm regression is reproduced before the fix
+        run: |
+          set +e
+          bunx --no-install vitest run src/test/admin-ui.test.tsx --testNamePattern='Materiais complementares no módulo selecionado' > qa-materials-reports/before-fix.log 2>&1
+          result=$?
+          set -e
+          if [ "$result" -eq 0 ]; then echo 'Regression unexpectedly passed before patch'; exit 1; fi
+          echo 'Regression reproduced on inspected baseline.'
+      - name: Apply the localized fix and format changed files
+        run: |
+          node scripts/qa-materials-apply.mjs
+          bunx --no-install prettier src/components/portal/AdminPage.tsx src/test/admin-ui.test.tsx --write
+          git diff -- src/components/portal/AdminPage.tsx src/test/admin-ui.test.tsx > qa-materials-reports/reviewed.diff
+      - name: TypeScript
+        run: bunx --no-install tsc --noEmit 2>&1 | tee qa-materials-reports/typescript.log
+      - name: Unit and component tests
+        run: bun run test --reporter=default --reporter=json --outputFile=qa-materials-reports/vitest.json 2>&1 | tee qa-materials-reports/tests.log
+      - name: Production build
+        run: bun run build 2>&1 | tee qa-materials-reports/build.log
+      - name: Lint
+        run: bun run lint 2>&1 | tee qa-materials-reports/lint.log
+      - name: Preserve tested corrections on this QA branch only
+        run: |
+          test "$GITHUB_REF_NAME" = 'qa/lesson-materials-20261112'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/components/portal/AdminPage.tsx src/test/admin-ui.test.tsx
+          git commit -m 'fix: create and select the first lesson from the materials uploader'
+          git push origin HEAD:"$GITHUB_REF_NAME"
+          git rev-parse HEAD > qa-materials-reports/tested-commit.txt
+          git ls-tree HEAD src/components/portal/AdminPage.tsx src/test/admin-ui.test.tsx > qa-materials-reports/tested-files.txt
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lesson-materials-fix-evidence
+          path: qa-materials-reports/
+          retention-days: 7
