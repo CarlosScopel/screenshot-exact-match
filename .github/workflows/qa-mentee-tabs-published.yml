@@ -1,0 +1,51 @@
+name: Verify published mentee tabs
+on:
+  push:
+    branches: ['qa/mentee-tabs-20261112']
+    paths: ['.github/workflows/qa-mentee-tabs-published.yml']
+permissions:
+  contents: read
+jobs:
+  published:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Inspect public bundles without accessing authenticated accounts
+        shell: bash
+        run: |
+          mkdir -p qa-reports
+          node --input-type=module <<'JS'
+          import {writeFile} from 'node:fs/promises';
+          const origin='https://pixel-perfect-replay-54723.lovable.app';
+          const expected=['Aulas e gravações','Seções do mentorado'];
+          let report;
+          for(let attempt=1;attempt<=12;attempt++){
+            const root=origin+'/?tabs-check='+Date.now();
+            const seen=new Set(),queue=[root];let content='';
+            while(queue.length&&seen.size<80){
+              const url=queue.shift();if(seen.has(url))continue;seen.add(url);
+              const response=await fetch(url,{headers:{'Cache-Control':'no-cache'},signal:AbortSignal.timeout(20000)});
+              if(!response.ok)continue;
+              const text=await response.text();content+='\n'+text;
+              for(const match of text.matchAll(/["']([^"'<>\s\\]+\.js(?:\?[^"'<>\s\\]*)?)["']/g)){
+                try{const asset=new URL(match[1],url);if(asset.origin===origin&&!seen.has(asset.href))queue.push(asset.href);}catch{}
+              }
+            }
+            content=content.replace(/\\u([0-9a-f]{4})/gi,(_,hex)=>String.fromCharCode(parseInt(hex,16))).replace(/\\x([0-9a-f]{2})/gi,(_,hex)=>String.fromCharCode(parseInt(hex,16)));
+            report={url:origin,expectedMainCommit:'609a1a565bb1ad80585d8942423d56ff5d05d298',attempt,assetsRead:seen.size,markers:Object.fromEntries(expected.map(label=>[label,content.includes(label)])),privateDataAccessed:false};
+            if(Object.values(report.markers).every(Boolean))break;
+            await new Promise(resolve=>setTimeout(resolve,10000));
+          }
+          await writeFile('qa-reports/published.json',JSON.stringify(report,null,2));
+          console.log(JSON.stringify(report));
+          if(!Object.values(report.markers).every(Boolean))throw Error('New tab labels not confirmed in published bundles');
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mentee-tabs-published
+          path: qa-reports/
+          retention-days: 7
