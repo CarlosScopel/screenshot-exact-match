@@ -45,7 +45,7 @@ jobs:
               const actual = Buffer.from(await response.arrayBuffer());
               const expectedHash=createHash('sha256').update(expected).digest('hex');
               const actualHash=createHash('sha256').update(actual).digest('hex');
-              report.assets.push({path:`/assets/${name}`,status:response.status,expectedHash,actualHash,match:response.ok()&&expectedHash===actualHash});
+              report.assets.push({path:`/assets/${name}`,status:response.status,expectedHash,actualHash,match:response.ok&&expectedHash===actualHash});
             }
             report.publishedBuildMatches=report.assets.every(asset => asset.match);
             if (!report.publishedBuildMatches) throw new Error('Published assets do not match the verified release; publication is not confirmed.');
@@ -55,8 +55,8 @@ jobs:
       - name: Desktop and mobile public demonstration without production data changes
         run: |
           PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/portal-browser/node_modules/playwright/index.mjs" node --env-file=.env scripts/validate-browser.mjs
-      - name: Request one owner verification email; previous run skipped this action
-        if: github.run_attempt == 1 && github.run_number == 2
+      - name: Request one owner verification email; prior runs never reached this step
+        if: github.run_attempt == 1 && github.run_number == 3
         run: |
           PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/portal-browser/node_modules/playwright/index.mjs" node --input-type=module <<'JS'
           import { pathToFileURL } from 'node:url';
