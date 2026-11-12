@@ -1,0 +1,75 @@
+name: Mentorship browser validation
+on:
+  push:
+    branches: ['qa/mentorship-plans-20261112']
+    paths: ['.github/workflows/mentorship-browser.yml']
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - run: |
+          bun install --frozen-lockfile
+          npm install --prefix "$RUNNER_TEMP/browser" --no-save --package-lock=false playwright
+          node "$RUNNER_TEMP/browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Render actual component with fictitious intercepted RPCs
+        run: |
+          mkdir -p qa-reports
+          export PLAYWRIGHT_PATH="$RUNNER_TEMP/browser/node_modules/playwright/index.mjs"
+          node --env-file=.env --input-type=module <<'JS'
+          import {writeFile} from 'node:fs/promises';
+          import {pathToFileURL} from 'node:url';
+          import {createServer} from 'vite';
+          import react from '@vitejs/plugin-react';
+          import tailwind from '@tailwindcss/vite';
+          import path from 'node:path';
+          const {chromium}=await import(pathToFileURL(process.env.PLAYWRIGHT_PATH).href);
+          const uid='00000000-0000-4000-8000-000000000002',pid='00000000-0000-4000-8000-000000000101';
+          const ids=[1,2,3].map(i=>'00000000-0000-4000-8000-00000000020'+i);
+          const now=new Date(),start=new Date(now.getFullYear(),now.getMonth(),now.getDate()-1),end=new Date(now.getFullYear(),now.getMonth()+6,now.getDate());
+          const iso=d=>d.toISOString().slice(0,10);
+          const data={user_id:uid,server_now:now.toISOString(),status:'active',has_access:true,legacy_expires_at:end.toISOString(),plans:[{id:pid,user_id:uid,start_date:iso(start),end_date:iso(end),starts_at:start.toISOString(),ends_at:end.toISOString(),duration_count:6,duration_unit:'months',total_cents:500000,installment_count:3,first_due_date:iso(start),revision:1}],installments:ids.map((id,i)=>({id,plan_id:pid,number:i+1,amount_cents:i===2?166666:166667,due_date:iso(new Date(now.getFullYear(),now.getMonth()+i,now.getDate())),paid_at:i===1?now.toISOString():null,paid_on:i===1?iso(now):null,payment_note:''})),receipts:[{id:'00000000-0000-4000-8000-000000000301',installment_id:ids[0],user_id:uid,file_path:uid+'/'+ids[0]+'/00000000-0000-4000-8000-000000000401.pdf',file_name:'Comprovante de exemplo.pdf',paid_on:iso(now),status:'pending',review_note:'',reviewed_at:null,created_at:now.toISOString()}]};
+          await writeFile('qa-mentorship-view.html','<html lang="pt-BR"><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="root"></div><script type="module" src="/qa-mentorship-view.tsx"></script></body></html>');
+          await writeFile('qa-mentorship-view.tsx',`import {createRoot} from 'react-dom/client'; import {MentorshipPanel} from './src/components/portal/MentorshipPanel'; import './src/styles.css'; createRoot(document.getElementById('root')!).render(<main className="min-h-screen p-4 sm:p-8 max-w-6xl mx-auto"><MentorshipPanel userId="${uid}" admin={new URLSearchParams(window.location.search).has('admin')}/></main>);`);
+          const server=await createServer({configFile:false,root:process.cwd(),plugins:[react(),tailwind()],resolve:{alias:{'@':path.resolve('src')}},server:{host:'127.0.0.1',port:4179}});await server.listen();
+          const browser=await chromium.launch({headless:true});const results=[];const errors=[];
+          try{
+            for(const [name,width,height] of [['desktop',1440,1100],['mobile',390,844]]){
+              const page=await browser.newPage({viewport:{width,height}});page.on('pageerror',e=>errors.push(String(e)));
+              await page.route('**/*',async route=>{const u=new URL(route.request().url());if(u.hostname==='127.0.0.1')return route.continue();if(u.pathname.endsWith('/rpc/mentorship_account'))return route.fulfill({json:data});return route.abort();});
+              await page.goto('http://127.0.0.1:4179/qa-mentorship-view.html?admin');
+              await page.getByRole('button',{name:'Novo plano / renovação',exact:true}).waitFor();
+              await page.screenshot({path:`qa-reports/${name}-admin.png`,fullPage:true});
+              await page.getByRole('button',{name:'Novo plano / renovação',exact:true}).click();
+              await page.getByLabel('Valor total cobrado (R$)',{exact:true}).fill('5000');
+              await page.getByLabel('Forma de pagamento',{exact:true}).selectOption('installments');
+              await page.getByLabel('Quantidade de parcelas',{exact:true}).fill('5');
+              await page.screenshot({path:`qa-reports/${name}-plan-form.png`,fullPage:true});
+              if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error(name+' form overflow');
+              await page.goto('http://127.0.0.1:4179/qa-mentorship-view.html');
+              await page.getByRole('button',{name:'Enviar comprovante',exact:true}).click();
+              await page.getByLabel('Comprovante (PDF, PNG ou JPG, até 10 MB)',{exact:true}).waitFor();
+              if(await page.getByRole('button',{name:'Aprovar comprovante',exact:true}).count())throw Error('Student has admin payment control');
+              await page.screenshot({path:`qa-reports/${name}-student.png`,fullPage:true});
+              if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error(name+' student overflow');
+              results.push({viewport:name,adminPanel:true,planForm:true,studentPanel:true,privateUploadInput:true,noHorizontalOverflow:true});await page.close();
+            }
+            if(errors.length)throw Error(errors.join('\n'));
+          }finally{await writeFile('qa-reports/browser.json',JSON.stringify({results,errors,dataSource:'fictitious intercepted RPCs; no production reads or writes'},null,2));await browser.close();await server.close();}
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mentorship-browser-evidence
+          path: qa-reports/
+          retention-days: 7
