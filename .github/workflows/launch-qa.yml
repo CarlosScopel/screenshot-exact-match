@@ -1,0 +1,81 @@
+name: Validate launch corrections before main
+on:
+  push:
+    branches: ['qa/ordem-launch-fixes-20261111']
+    paths: ['.github/workflows/launch-qa.yml', 'scripts/launch-fixes.patch']
+permissions:
+  contents: write
+defaults:
+  run:
+    shell: bash
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/qa/ordem-launch-fixes-20261111'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Apply reviewed patch to the exact inspected baseline
+        run: |
+          test "$(git rev-parse HEAD^)" = c7604eaffb3fae8a193fe443540cdd52d4346ee8
+          git apply --check scripts/launch-fixes.patch
+          git apply scripts/launch-fixes.patch
+          mkdir -p qa-reports
+      - name: Install existing locked dependencies
+        run: bun install --frozen-lockfile
+      - name: Format only changed source and test files
+        run: |
+          bunx --no-install prettier --write scripts/validate-browser.mjs src/components/portal/AccessScreen.tsx src/components/portal/Portal.tsx src/lib/admin.functions.ts src/lib/auth-redirect.ts src/lib/media.ts src/lib/owner.functions.ts src/lib/owner.server.ts src/test/admin-flows.test.ts src/test/auth-redirect.test.ts src/test/material-download.test.ts src/test/owner-access.test.ts
+      - name: TypeScript
+        run: bunx --no-install tsc --noEmit 2>&1 | tee qa-reports/typescript.log
+      - name: Unit and component tests
+        run: bun run test --reporter=default --reporter=json --outputFile=qa-reports/vitest.json
+      - name: Production build
+        run: bun run build 2>&1 | tee qa-reports/build.log
+      - name: Lint
+        run: bunx --no-install eslint . --format json --output-file qa-reports/lint.json
+      - name: Isolated browser tooling
+        run: |
+          npm install --prefix "$RUNNER_TEMP/portal-browser" --no-save --package-lock=false playwright wrangler
+          node "$RUNNER_TEMP/portal-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Desktop and mobile on production runtime
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+        run: |
+          node --env-file=.env --input-type=module -e 'import fs from "node:fs"; fs.writeFileSync(".output/server/.dev.vars",`SUPABASE_URL=${JSON.stringify(process.env.VITE_SUPABASE_URL)}\nSUPABASE_PUBLISHABLE_KEY=${JSON.stringify(process.env.VITE_SUPABASE_PUBLISHABLE_KEY)}\n`);'
+          node "$RUNNER_TEMP/portal-browser/node_modules/wrangler/bin/wrangler.js" dev --config .output/server/wrangler.json --local --ip 127.0.0.1 --port 4173 > qa-reports/server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/portal-browser/node_modules/playwright/index.mjs" node --env-file=.env scripts/validate-browser.mjs
+      - name: Verify published demonstration without production mutations
+        env:
+          QA_BASE_URL: https://pixel-perfect-replay-54723.lovable.app
+        run: |
+          cp qa-reports/browser.json qa-reports/browser-local.json
+          PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/portal-browser/node_modules/playwright/index.mjs" node --env-file=.env scripts/validate-browser.mjs
+          cp qa-reports/browser.json qa-reports/browser-published.json
+      - name: Preserve tested corrections on QA branch only
+        run: |
+          test "$(git ls-remote origin "$GITHUB_REF" | cut -f1)" = "$GITHUB_SHA"
+          git add scripts/validate-browser.mjs src/components/portal/AccessScreen.tsx src/components/portal/Portal.tsx src/lib/admin.functions.ts src/lib/auth-redirect.ts src/lib/media.ts src/lib/owner.functions.ts src/lib/owner.server.ts src/test/admin-flows.test.ts src/test/auth-redirect.test.ts src/test/material-download.test.ts src/test/owner-access.test.ts
+          git diff --cached --check
+          git diff --cached > qa-reports/reviewed.diff
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: validate access callbacks and private downloads before release'
+          git rev-parse HEAD > qa-reports/prepared-commit.txt
+          git ls-tree -r HEAD src scripts > qa-reports/prepared-files.txt
+          git push origin "HEAD:$GITHUB_REF"
+      - name: Validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch-corrections-evidence
+          path: qa-reports/
+          retention-days: 7

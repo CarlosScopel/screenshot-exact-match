@@ -1,0 +1,378 @@
+--- a/scripts/validate-browser.mjs
++++ b/scripts/validate-browser.mjs
+@@ -14,6 +14,7 @@
+   ],
+   pageErrors: [],
+   networkErrors: [],
++  hostingTelemetry: [],
+   authSettings: null,
+ };
+ const base = process.env.QA_BASE_URL || "http://127.0.0.1:4173";
+@@ -97,8 +98,20 @@
+   await check("demo-login-enters-learner-dashboard", () => enterDemo(page));
+   const writes = [];
+   page.on("request", (request) => {
+-    if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method()))
+-      writes.push({ method: request.method(), path: new URL(request.url()).pathname });
++    if (!["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) return;
++    const url = new URL(request.url());
++    const entry = { method: request.method(), path: url.pathname };
++    // The published host injects analytics. Keep those separate from app mutations,
++    // but do not exempt any Supabase request, server function, or unknown endpoint.
++    if (
++      entry.method === "POST" &&
++      url.origin === new URL(base).origin &&
++      entry.path === "/__l5e/trackevents"
++    ) {
++      report.hostingTelemetry.push(entry);
++    } else {
++      writes.push(entry);
++    }
+   });
+   await check("desktop-dashboard", async () => {
+     await page.getByRole("heading", { name: /Alex/ }).waitFor();
+--- a/src/components/portal/AccessScreen.tsx
++++ b/src/components/portal/AccessScreen.tsx
+@@ -13,6 +13,7 @@
+ import { requestOwnerAccess } from "@/lib/owner.functions";
+ import { useMedia } from "@/lib/media";
+ import { DEMO_EMAIL, DEMO_PASSWORD } from "@/lib/demo";
++import { authRedirectUrl } from "@/lib/auth-redirect";
+ 
+ export function AccessScreen({
+   name,
+@@ -90,7 +91,7 @@
+         );
+       } else if (mode === "forgot") {
+         const { error } = await supabase.auth.resetPasswordForEmail(form.email, {
+-          redirectTo: window.location.origin,
++          redirectTo: authRedirectUrl(window.location.origin),
+         });
+         if (error) throw error;
+         setFeedback("Se este e-mail estiver cadastrado, você receberá instruções de recuperação.");
+--- a/src/components/portal/Portal.tsx
++++ b/src/components/portal/Portal.tsx
+@@ -28,6 +28,7 @@
+ import ReactMarkdown from "react-markdown";
+ import { AuthProvider, isMemberBlocked, useAuth } from "@/lib/auth";
+ import { approvalState } from "@/lib/approval";
++import { authRedirectUrl } from "@/lib/auth-redirect";
+ import { createDemoPortalData, DEMO_EMAIL, DEMO_MEMBER_NAME, DEMO_USER_ID } from "@/lib/demo";
+ import { supabase } from "@/integrations/supabase/client";
+ import { AccessScreen } from "./AccessScreen";
+@@ -563,7 +564,10 @@
+           <button
+             className="portal-outline mt-5"
+             onClick={async () => {
+-              const { error } = await supabase.auth.resetPasswordForEmail(profile?.email || "");
++              const { error } = await supabase.auth.resetPasswordForEmail(
++                profile?.email || "",
++                { redirectTo: authRedirectUrl(window.location.origin) },
++              );
+               setFeedback(error?.message || "Confira seu e-mail para redefinir a senha.");
+             }}
+           >
+--- a/src/lib/admin.functions.ts
++++ b/src/lib/admin.functions.ts
+@@ -1,4 +1,6 @@
+ import { createServerFn } from "@tanstack/react-start";
++import { getRequest } from "@tanstack/react-start/server";
++import { authRedirectUrl } from "@/lib/auth-redirect";
+ import { z } from "zod";
+ import type { SupabaseClient } from "@supabase/supabase-js";
+ import type { Database } from "@/integrations/supabase/types";
+@@ -86,7 +88,7 @@
+     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+     const { data: inv, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(data.email, {
+       data: { full_name: data.name },
+-      redirectTo: data.redirectTo,
++      redirectTo: authRedirectUrl(data.redirectTo, "invite"),
+     });
+     if (error || !inv.user) throw new Error(error?.message ?? "Não foi possível enviar o convite");
+     const uid = inv.user.id;
+@@ -175,6 +177,7 @@
+         throw new Error("Acesso aprovado, mas não foi possível liberar a confirmação do e-mail.");
+       const { error: emailError } = await supabaseAdmin.auth.resetPasswordForEmail(
+         application.email,
++        { redirectTo: authRedirectUrl(getRequest().url) },
+       );
+       return { ok: true, needsPasswordEmail: !!emailError };
+     }
+@@ -193,13 +196,13 @@
+     const u = list?.users.find((x) => x.email?.toLowerCase() === data.email.toLowerCase());
+     if (u?.email_confirmed_at || u?.last_sign_in_at) {
+       const { error } = await supabaseAdmin.auth.resetPasswordForEmail(data.email, {
+-        redirectTo: data.redirectTo,
++        redirectTo: authRedirectUrl(data.redirectTo),
+       });
+       if (error) throw new Error(error.message);
+       return { kind: "reset" as const };
+     }
+     const { error } = await supabaseAdmin.auth.admin.inviteUserByEmail(data.email, {
+-      redirectTo: data.redirectTo,
++      redirectTo: authRedirectUrl(data.redirectTo, "invite"),
+     });
+     if (error) throw new Error(error.message);
+     return { kind: "invite" as const };
+--- /dev/null
++++ b/src/lib/auth-redirect.ts
+@@ -0,0 +1,22 @@
++const PUBLISHED_ORIGIN = "https://pixel-perfect-replay-54723.lovable.app";
++const PREVIEW_ORIGIN = "https://id-preview--fe5f8730-9053-4efb-acbc-09b0dca41d85.lovable.app";
++
++/** Auth emails may return only to this project's published or preview origin. */
++export function authRedirectUrl(value?: string, type: "invite" | "recovery" = "recovery") {
++  let origin = PUBLISHED_ORIGIN;
++  try {
++    const candidate = new URL(value || PUBLISHED_ORIGIN);
++    if (
++      !candidate.username &&
++      !candidate.password &&
++      (candidate.origin === PUBLISHED_ORIGIN || candidate.origin === PREVIEW_ORIGIN)
++    ) {
++      origin = candidate.origin;
++    }
++  } catch {
++    // Never copy an arbitrary or malformed return URL into an authentication email.
++  }
++  const callback = new URL("/", origin);
++  callback.searchParams.set("type", type);
++  return callback.href;
++}
+--- a/src/lib/media.ts
++++ b/src/lib/media.ts
+@@ -53,9 +53,18 @@
+ }
+ 
+ export async function openMaterial(path: string) {
+-  const { data, error } = await supabase.storage
+-    .from("materials")
+-    .createSignedUrl(path, 120, { download: true });
+-  if (error || !data) throw error ?? new Error("Arquivo indisponível");
+-  window.open(data.signedUrl, "_blank", "noopener");
++  // Open synchronously in the user's click, before awaiting the protected URL.
++  const popup = window.open("about:blank", "_blank");
++  if (popup) popup.opener = null;
++  try {
++    const { data, error } = await supabase.storage
++      .from("materials")
++      .createSignedUrl(path, 120, { download: true });
++    if (error || !data) throw error ?? new Error("Arquivo indisponível");
++    if (popup && !popup.closed) popup.location.replace(data.signedUrl);
++    else window.location.assign(data.signedUrl);
++  } catch (error) {
++    popup?.close();
++    throw error;
++  }
+ }
+--- a/src/lib/owner.functions.ts
++++ b/src/lib/owner.functions.ts
+@@ -1,4 +1,5 @@
+ import { createServerFn } from "@tanstack/react-start";
++import { getRequest } from "@tanstack/react-start/server";
+ import { z } from "zod";
+ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+ 
+@@ -14,7 +15,7 @@
+   .handler(async ({ data }) => {
+     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+     const { sendOwnerAccess } = await import("./owner.server");
+-    return sendOwnerAccess(supabaseAdmin, data);
++    return sendOwnerAccess(supabaseAdmin, data, getRequest().url);
+   });
+ 
+ export const activateOwnerAccess = createServerFn({ method: "POST" })
+--- a/src/lib/owner.server.ts
++++ b/src/lib/owner.server.ts
+@@ -1,5 +1,6 @@
+ import type { SupabaseClient } from "@supabase/supabase-js";
+ import type { Database } from "@/integrations/supabase/types";
++import { authRedirectUrl } from "./auth-redirect";
+ 
+ // The owner is configured by the repository, never by signup metadata or form input.
+ export const OWNER_EMAIL = "dudu.escopelcarlos253@gmail.com";
+@@ -55,11 +56,16 @@
+ }
+ 
+ /** Send a link, not a password or an already-authenticated administrator session. */
+-export async function sendOwnerAccess(admin: AdminClient, input: { name: string; email: string }) {
++export async function sendOwnerAccess(
++  admin: AdminClient,
++  input: { name: string; email: string },
++  requestUrl?: string,
++) {
+   if (!isOwnerEmail(input.email))
+     throw new Error("Este e-mail não está autorizado para a administração.");
+   const { error } = await admin.auth.admin.inviteUserByEmail(OWNER_EMAIL, {
+     data: { full_name: input.name },
++    redirectTo: authRedirectUrl(requestUrl, "invite"),
+   });
+   if (error) {
+     // Existing accounts prove ownership again instead of having their password overwritten.
+@@ -70,7 +76,7 @@
+     }
+     const { error: otpError } = await admin.auth.signInWithOtp({
+       email: OWNER_EMAIL,
+-      options: { shouldCreateUser: false },
++      options: { shouldCreateUser: false, emailRedirectTo: authRedirectUrl(requestUrl) },
+     });
+     if (otpError)
+       throw new Error("Não foi possível enviar o link de acesso. Tente novamente mais tarde.");
+--- a/src/test/admin-flows.test.ts
++++ b/src/test/admin-flows.test.ts
+@@ -1,5 +1,10 @@
+ import { beforeEach, describe, expect, it, vi } from "vitest";
+ import { APPLICATION_PENDING, PENDING_APPROVAL, REJECTED_APPROVAL } from "@/lib/approval";
++import { authRedirectUrl } from "@/lib/auth-redirect";
++
++vi.mock("@tanstack/react-start/server", () => ({
++  getRequest: () => new Request("https://pixel-perfect-replay-54723.lovable.app/"),
++}));
+ 
+ const db = vi.hoisted(() => ({
+   from: vi.fn(),
+@@ -169,7 +174,9 @@
+     expect(write.update).toHaveBeenCalledWith({ status: "active", admin_notes: null });
+     expect(write.eq).toHaveBeenCalledWith("status", "suspended");
+     expect(write.eq).toHaveBeenCalledWith("admin_notes", APPLICATION_PENDING);
+-    expect(db.auth.resetPasswordForEmail).toHaveBeenCalledWith("aluno@example.test");
++    expect(db.auth.resetPasswordForEmail).toHaveBeenCalledWith("aluno@example.test", {
++      redirectTo: authRedirectUrl(),
++    });
+   });
+   it("mantém a recusa bloqueada e não envia e-mail de acesso", async () => {
+     const write = query({ data: { id: uid }, error: null });
+--- /dev/null
++++ b/src/test/auth-redirect.test.ts
+@@ -0,0 +1,33 @@
++import { describe, expect, it } from "vitest";
++import { authRedirectUrl } from "@/lib/auth-redirect";
++
++const live = "https://pixel-perfect-replay-54723.lovable.app";
++const preview = "https://id-preview--fe5f8730-9053-4efb-acbc-09b0dca41d85.lovable.app";
++
++describe("Destinos seguros dos e-mails de autenticação", () => {
++  it("usa a plataforma publicada por padrão e exibe a criação de senha", () => {
++    expect(authRedirectUrl()).toBe(`${live}/?type=recovery`);
++  });
++
++  it("preserva apenas a origem autorizada, sem copiar caminho ou parâmetros", () => {
++    expect(authRedirectUrl(`${live}/_serverFn/request?next=https://evil.test`)).toBe(
++      `${live}/?type=recovery`,
++    );
++  });
++
++  it("permite convite na prévia deste projeto", () => {
++    expect(authRedirectUrl(`${preview}/`, "invite")).toBe(`${preview}/?type=invite`);
++  });
++
++  it.each([
++    "https://example.test/",
++    "https://pixel-perfect-replay-54723.lovable.app.evil.test/",
++    "https://another-project.lovable.app/",
++    "javascript:alert(1)",
++    "http://pixel-perfect-replay-54723.lovable.app/",
++    "https://someone:password@pixel-perfect-replay-54723.lovable.app/",
++    "not-a-url",
++  ])("não encaminha tokens para destino não autorizado: %s", (value) => {
++    expect(authRedirectUrl(value)).toBe(`${live}/?type=recovery`);
++  });
++});
+--- /dev/null
++++ b/src/test/material-download.test.ts
+@@ -0,0 +1,59 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import { openMaterial } from "@/lib/media";
++
++const mock = vi.hoisted(() => ({ from: vi.fn(), signed: vi.fn() }));
++vi.mock("@/integrations/supabase/client", () => ({
++  supabase: { storage: { from: mock.from } },
++}));
++
++const url = "https://storage.example.test/signed-material?token=test-only";
++const popup = { closed: false, opener: {}, location: { replace: vi.fn() }, close: vi.fn() };
++const open = vi.fn();
++const assign = vi.fn();
++
++beforeEach(() => {
++  vi.resetAllMocks();
++  popup.closed = false;
++  popup.opener = {};
++  mock.from.mockReturnValue({ createSignedUrl: mock.signed });
++  mock.signed.mockResolvedValue({ data: { signedUrl: url }, error: null });
++  open.mockReturnValue(popup);
++  vi.stubGlobal("window", { open, location: { assign } });
++});
++afterEach(() => vi.unstubAllGlobals());
++
++describe("Download privado sem bloqueio de pop-up", () => {
++  it("abre a janela durante o clique, antes da resposta de autorização", async () => {
++    const pending = openMaterial("lesson/test-id/material.pdf");
++    expect(open).toHaveBeenCalledWith("about:blank", "_blank");
++    expect(popup.opener).toBeNull();
++    expect(popup.location.replace).not.toHaveBeenCalled();
++    await pending;
++    expect(mock.from).toHaveBeenCalledWith("materials");
++    expect(mock.signed).toHaveBeenCalledWith("lesson/test-id/material.pdf", 120, {
++      download: true,
++    });
++    expect(popup.location.replace).toHaveBeenCalledWith(url);
++  });
++
++  it("não abre o arquivo quando o backend nega acesso", async () => {
++    const error = new Error("Acesso negado");
++    mock.signed.mockResolvedValue({ data: null, error });
++    await expect(openMaterial("lesson/test-id/private.pdf")).rejects.toBe(error);
++    expect(popup.close).toHaveBeenCalled();
++    expect(popup.location.replace).not.toHaveBeenCalled();
++    expect(assign).not.toHaveBeenCalled();
++  });
++
++  it("usa a mesma aba quando o navegador recusa a nova janela", async () => {
++    open.mockReturnValue(null);
++    await openMaterial("library/test-id/material.pdf");
++    expect(assign).toHaveBeenCalledWith(url);
++  });
++
++  it("fecha a janela vazia e propaga erros de rede", async () => {
++    mock.signed.mockRejectedValue(new Error("Conexão indisponível"));
++    await expect(openMaterial("library/test-id/material.pdf")).rejects.toThrow("Conexão");
++    expect(popup.close).toHaveBeenCalled();
++  });
++});
+--- a/src/test/owner-access.test.ts
++++ b/src/test/owner-access.test.ts
+@@ -1,5 +1,6 @@
+ import { describe, it } from "vitest";
+ import assert from "node:assert/strict";
++import { authRedirectUrl } from "@/lib/auth-redirect";
+ import {
+   OWNER_EMAIL,
+   isOwnerEmail,
+@@ -165,7 +166,13 @@
+       verificationRequired: true,
+     });
+     assert.deepEqual(f.calls, [
+-      { method: "invite", args: [OWNER_EMAIL, { data: { full_name: "Carlos" } }] },
++      {
++        method: "invite",
++        args: [
++          OWNER_EMAIL,
++          { data: { full_name: "Carlos" }, redirectTo: authRedirectUrl(undefined, "invite") },
++        ],
++      },
+     ]);
+   });
+   it("sends a fresh link to an existing account without overwriting its password", async () => {
+@@ -176,7 +183,10 @@
+       ["invite", "otp"],
+     );
+     assert.deepEqual(f.calls[1]?.args, [
+-      { email: OWNER_EMAIL, options: { shouldCreateUser: false } },
++      {
++        email: OWNER_EMAIL,
++        options: { shouldCreateUser: false, emailRedirectTo: authRedirectUrl() },
++      },
+     ]);
+   });
+   it("does not bypass auth rate limits or SMTP failures", async () => {
