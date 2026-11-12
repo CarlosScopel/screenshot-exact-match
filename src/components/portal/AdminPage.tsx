@@ -16,6 +16,7 @@ import { inviteMentee, resendInvite, deleteMentee, reviewMentee } from "@/lib/ad
 import { approvalState } from "@/lib/approval";
 import { MentorshipPanel } from "./MentorshipPanel";
 import { RecordingsPanel } from "./RecordingsPanel";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { uploadMaterial, uploadMedia } from "@/lib/media";
 import { displayPlatformName, formatDate, type PortalData, type Row } from "@/lib/portal";
 
@@ -996,6 +997,7 @@ function TrainingCohorts({ data, reload }: { data: PortalData; reload: () => Pro
 }
 function Mentees({ data, reload }: { data: PortalData; reload: () => Promise<void> }) {
   const [selected, setSelected] = useState<Row<"profiles"> | null>(null);
+  const [detailTab, setDetailTab] = useState<"learning" | "billing">("learning");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const pending = data.profiles.filter((p) => approvalState(p) === "pending");
@@ -1212,47 +1214,76 @@ function Mentees({ data, reload }: { data: PortalData; reload: () => Promise<voi
               Salvar mentorado
             </button>
           </form>
-          <div className="mt-6">
-            <MentorshipPanel
-              key={selected["id"]}
-              userId={selected["id"]}
-              admin
-              onChanged={reload}
-            />
-          </div>
-          <div className="mt-6">
-            <RecordingsPanel key={"recordings-" + selected.id} userId={selected.id} admin />
-          </div>
-          <h3 className="font-semibold mt-6 mb-3">Acesso individual aos treinamentos</h3>
-          <div className="grid sm:grid-cols-2 gap-2">
-            {data.trainings.map((t) => (
-              <label className="flex items-center gap-3 text-sm p-3 rounded-xl border" key={t.id}>
-                <input
-                  type="checkbox"
-                  checked={data.trainingGrants.some(
-                    (g) => g.user_id === selected["id"] && g.training_id === t.id,
-                  )}
-                  onChange={(e) => void grant("training", t.id, e.target.checked)}
+          <Tabs
+            key={selected.id}
+            value={detailTab}
+            onValueChange={(value) => setDetailTab(value === "billing" ? "billing" : "learning")}
+            className="mt-6"
+          >
+            <TabsList
+              aria-label="Seções do mentorado"
+              className="grid h-auto w-full grid-cols-1 gap-1 sm:grid-cols-2"
+            >
+              <TabsTrigger value="learning" className="whitespace-normal px-3 py-2">
+                Aulas e gravações
+              </TabsTrigger>
+              <TabsTrigger value="billing" className="whitespace-normal px-3 py-2">
+                Plano e pagamentos
+              </TabsTrigger>
+            </TabsList>
+            {/* Keep forms and uploads mounted while only the selected section is visible. */}
+            <TabsContent value="learning" forceMount hidden={detailTab !== "learning"}>
+              <div className="mt-6">
+                <RecordingsPanel key={"recordings-" + selected.id} userId={selected.id} admin />
+              </div>
+              <h3 className="font-semibold mt-6 mb-3">Acesso individual aos treinamentos</h3>
+              <div className="grid sm:grid-cols-2 gap-2">
+                {data.trainings.map((t) => (
+                  <label
+                    className="flex items-center gap-3 text-sm p-3 rounded-xl border"
+                    key={t.id}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={data.trainingGrants.some(
+                        (g) => g.user_id === selected["id"] && g.training_id === t.id,
+                      )}
+                      onChange={(e) => void grant("training", t.id, e.target.checked)}
+                    />
+                    {t.title}
+                  </label>
+                ))}
+              </div>
+              <h3 className="font-semibold mt-6 mb-3">Turmas</h3>
+              <div className="grid sm:grid-cols-2 gap-2">
+                {data.cohorts.map((c) => (
+                  <label
+                    className="flex items-center gap-3 text-sm p-3 rounded-xl border"
+                    key={c.id}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={data.cohortMembers.some(
+                        (g) => g.user_id === selected["id"] && g.cohort_id === c.id,
+                      )}
+                      onChange={(e) => void grant("cohort", c.id, e.target.checked)}
+                    />
+                    {c.name}
+                  </label>
+                ))}
+              </div>
+            </TabsContent>
+            <TabsContent value="billing" forceMount hidden={detailTab !== "billing"}>
+              <div className="mt-6">
+                <MentorshipPanel
+                  key={selected["id"]}
+                  userId={selected["id"]}
+                  admin
+                  onChanged={reload}
                 />
-                {t.title}
-              </label>
-            ))}
-          </div>
-          <h3 className="font-semibold mt-6 mb-3">Turmas</h3>
-          <div className="grid sm:grid-cols-2 gap-2">
-            {data.cohorts.map((c) => (
-              <label className="flex items-center gap-3 text-sm p-3 rounded-xl border" key={c.id}>
-                <input
-                  type="checkbox"
-                  checked={data.cohortMembers.some(
-                    (g) => g.user_id === selected["id"] && g.cohort_id === c.id,
-                  )}
-                  onChange={(e) => void grant("cohort", c.id, e.target.checked)}
-                />
-                {c.name}
-              </label>
-            ))}
-          </div>
+              </div>
+            </TabsContent>
+          </Tabs>
           <div className="flex gap-3 mt-6 flex-wrap">
             <button
               className="portal-outline"
@@ -1323,6 +1354,7 @@ function Mentees({ data, reload }: { data: PortalData; reload: () => Promise<voi
                       className="text-primary"
                       onClick={() => {
                         setMessage("");
+                        setDetailTab("learning");
                         setSelected(p);
                       }}
                     >
