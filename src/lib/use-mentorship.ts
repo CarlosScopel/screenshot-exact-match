@@ -20,7 +20,8 @@ export function useMentorshipAccount(userId: string | null, enabled = true) {
       setAccount(value);
       setError("");
     } catch (cause) {
-      if (current === generation.current) setError(cause instanceof Error ? cause.message : "Não foi possível verificar o plano.");
+      if (current === generation.current)
+        setError(cause instanceof Error ? cause.message : "Não foi possível verificar o plano.");
     } finally {
       if (current === generation.current) setLoading(false);
     }
@@ -31,8 +32,13 @@ export function useMentorshipAccount(userId: string | null, enabled = true) {
     setLoading(!!userId && enabled);
     if (!userId || !enabled) return;
     void refresh();
-    const tick = window.setInterval(() => { setNow(Date.now() + offset.current); void refresh(); }, 60_000);
-    const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+    const tick = window.setInterval(() => {
+      setNow(Date.now() + offset.current);
+      void refresh();
+    }, 60_000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
     window.addEventListener("focus", onVisible);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
@@ -44,11 +50,17 @@ export function useMentorshipAccount(userId: string | null, enabled = true) {
   }, [userId, enabled, refresh]);
   useEffect(() => {
     if (!account || !enabled) return;
-    const boundaries = account.plans.flatMap((plan) => [Date.parse(plan.starts_at), Date.parse(plan.ends_at)]);
+    const boundaries = account.plans.flatMap((plan) => [
+      Date.parse(plan.starts_at),
+      Date.parse(plan.ends_at),
+    ]);
     if (account.legacy_expires_at) boundaries.push(Date.parse(account.legacy_expires_at));
     const next = Math.min(...boundaries.filter((time) => time > now));
     if (!Number.isFinite(next)) return;
-    const timer = window.setTimeout(() => setNow(Date.now() + offset.current), Math.min(next - now + 50, 2_147_000_000));
+    const timer = window.setTimeout(
+      () => setNow(Date.now() + offset.current),
+      Math.min(next - now + 50, 2_147_000_000),
+    );
     return () => window.clearTimeout(timer);
   }, [account, enabled, now]);
   return { account: account?.user_id === userId ? account : null, error, loading, now, refresh };

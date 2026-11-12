@@ -71,7 +71,7 @@ DECLARE old public.mentorship_plans%ROWTYPE; months integer; finish date; n inte
 BEGIN
  IF auth.uid() IS NULL OR NOT public.is_admin(auth.uid()) THEN RAISE EXCEPTION 'Apenas administradores podem definir planos.' USING ERRCODE='42501'; END IF;
  IF p_id IS NULL OR p_start_date IS NULL OR p_first_due_date IS NULL OR p_duration_count IS NULL OR p_duration_unit IS NULL OR p_total_cents IS NULL OR p_installment_count IS NULL OR p_expected_revision IS NULL THEN RAISE EXCEPTION 'Preencha todos os dados do plano.'; END IF;
- IF p_duration_unit NOT IN ('months','years') OR p_duration_count<1 OR p_duration_count>CASE WHEN p_duration_unit='years' THEN 10 ELSE 120 END OR p_total_cents NOT BETWEEN 1 AND 1000000000 OR p_installment_count NOT BETWEEN 1 AND 60 OR p_total_cents<p_installment_count OR p_start_date NOT BETWEEN DATE '2000-01-01' AND DATE '2100-01-01' OR p_first_due_date NOT BETWEEN DATE '2000-01-01' AND DATE '2100-01-01' THEN RAISE EXCEPTION 'Dados do plano inválidos.'; END IF;
+ IF p_duration_unit NOT IN ('months','years') OR p_duration_count<1 OR p_duration_count>(CASE WHEN p_duration_unit='years' THEN 10 ELSE 120 END) OR p_total_cents NOT BETWEEN 1 AND 1000000000 OR p_installment_count NOT BETWEEN 1 AND 60 OR p_total_cents<p_installment_count OR p_start_date NOT BETWEEN DATE '2000-01-01' AND DATE '2100-01-01' OR p_first_due_date NOT BETWEEN DATE '2000-01-01' AND DATE '2100-01-01' THEN RAISE EXCEPTION 'Dados do plano inválidos.'; END IF;
  PERFORM 1 FROM public.profiles WHERE id=p_user_id FOR UPDATE;
  IF NOT FOUND THEN RAISE EXCEPTION 'Mentorado não encontrado.'; END IF;
  months:=p_duration_count*CASE WHEN p_duration_unit='years' THEN 12 ELSE 1 END;
@@ -80,6 +80,7 @@ BEGIN
  is_new:=NOT FOUND;
  IF (is_new AND p_expected_revision<>0) OR (NOT is_new AND (old.user_id<>p_user_id OR old.revision<>p_expected_revision)) THEN RAISE EXCEPTION 'Este plano foi alterado. Atualize a página antes de salvar.'; END IF;
  IF EXISTS(SELECT 1 FROM public.mentorship_plans m WHERE m.user_id=p_user_id AND m.id<>p_id AND m.start_date<finish AND m.end_date>p_start_date) THEN RAISE EXCEPTION 'O período se sobrepõe a outro plano. Inicie a renovação no vencimento do plano anterior.'; END IF;
+ PERFORM 1 FROM public.mentorship_installments WHERE plan_id=p_id ORDER BY id FOR UPDATE;
  financial_change:=is_new OR old.total_cents<>p_total_cents OR old.installment_count<>p_installment_count OR old.first_due_date<>p_first_due_date;
  IF NOT is_new AND financial_change AND EXISTS(SELECT 1 FROM public.mentorship_installments i WHERE i.plan_id=p_id AND (i.paid_at IS NOT NULL OR EXISTS(SELECT 1 FROM public.mentorship_receipts r WHERE r.installment_id=i.id))) THEN RAISE EXCEPTION 'Valores e parcelas com pagamentos ou comprovantes não podem ser reescritos. O histórico deve ser preservado.'; END IF;
  IF is_new THEN

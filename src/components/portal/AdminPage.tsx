@@ -14,6 +14,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { inviteMentee, resendInvite, deleteMentee, reviewMentee } from "@/lib/admin.functions";
 import { approvalState } from "@/lib/approval";
+import { MentorshipPanel } from "./MentorshipPanel";
 import { uploadMaterial, uploadMedia } from "@/lib/media";
 import { displayPlatformName, formatDate, type PortalData, type Row } from "@/lib/portal";
 
@@ -26,6 +27,7 @@ type View =
   | "tools"
   | "announcements"
   | "profile"
+  | "billing"
   | "admin"
   | "manage-trainings"
   | "manage-library"
@@ -1055,7 +1057,6 @@ function Mentees({ data, reload }: { data: PortalData; reload: () => Promise<voi
       .update({
         full_name: String(f.get("name")),
         status: String(f.get("status")),
-        access_expires_at: String(f.get("expires")) || null,
       })
       .eq("id", selected["id"]);
     setMessage(error?.message || "Mentorado atualizado.");
@@ -1170,7 +1171,7 @@ function Mentees({ data, reload }: { data: PortalData; reload: () => Promise<voi
             </h2>
             <button onClick={() => setSelected(null)}>Fechar</button>
           </div>
-          <form onSubmit={saveProfile} className="grid md:grid-cols-4 gap-3">
+          <form onSubmit={saveProfile} className="grid md:grid-cols-3 gap-3">
             <input
               className="portal-input"
               name="name"
@@ -1181,16 +1182,18 @@ function Mentees({ data, reload }: { data: PortalData; reload: () => Promise<voi
               <option value="active">Ativo</option>
               <option value="suspended">Suspenso</option>
             </select>
-            <input
-              className="portal-input"
-              type="date"
-              name="expires"
-              defaultValue={selected["access_expires_at"]?.slice(0, 10) || ""}
-            />
             <button className="portal-button" disabled={busy}>
               Salvar mentorado
             </button>
           </form>
+          <div className="mt-6">
+            <MentorshipPanel
+              key={selected["id"]}
+              userId={selected["id"]}
+              admin
+              onChanged={reload}
+            />
+          </div>
           <h3 className="font-semibold mt-6 mb-3">Acesso individual aos treinamentos</h3>
           <div className="grid sm:grid-cols-2 gap-2">
             {data.trainings.map((t) => (
@@ -1279,7 +1282,9 @@ function Mentees({ data, reload }: { data: PortalData; reload: () => Promise<voi
                     : approvalState(p) === "rejected"
                       ? "Recusado"
                       : p.status === "active"
-                        ? "Ativo"
+                        ? p.access_expires_at && Date.parse(p.access_expires_at) <= Date.now()
+                          ? "Prazo encerrado"
+                          : "Ativo"
                         : "Suspenso"}
                 </td>
                 <td className="p-4">{formatDate(p.created_at)}</td>
