@@ -83,7 +83,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "description", content: "Ambiente privado de mentoria e treinamentos" },
       { name: "author", content: "A ORDEM" },
       { property: "og:title", content: "A ORDEM" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { property: "og:description", content: "Ambiente privado de mentoria e treinamentos A ORDEM." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:site", content: "" },

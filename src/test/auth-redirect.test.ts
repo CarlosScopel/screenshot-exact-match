@@ -6,12 +6,12 @@ const preview = "https://id-preview--fe5f8730-9053-4efb-acbc-09b0dca41d85.lovabl
 
 describe("Destinos seguros dos e-mails de autenticação", () => {
   it("usa a plataforma publicada por padrão e exibe a criação de senha", () => {
-    expect(authRedirectUrl()).toBe(`${live}/?type=recovery`);
+    expect(authRedirectUrl()).toBe(`${live}/reset-password?type=recovery`);
   });
 
   it("preserva apenas a origem autorizada, sem copiar caminho ou parâmetros", () => {
     expect(authRedirectUrl(`${live}/_serverFn/request?next=https://evil.test`)).toBe(
-      `${live}/?type=recovery`,
+      `${live}/reset-password?type=recovery`,
     );
   });
 
@@ -28,6 +28,6 @@ describe("Destinos seguros dos e-mails de autenticação", () => {
     "https://someone:password@pixel-perfect-replay-54723.lovable.app/",
     "not-a-url",
   ])("não encaminha tokens para destino não autorizado: %s", (value) => {
-    expect(authRedirectUrl(value)).toBe(`${live}/?type=recovery`);
+    expect(authRedirectUrl(value)).toBe(`${live}/reset-password?type=recovery`);
   });
 });

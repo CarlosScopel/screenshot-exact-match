@@ -12,6 +12,8 @@ export const Route = createFileRoute("/")({
       },
       { property: "og:title", content: "A ORDEM" },
       { property: "og:description", content: "Área exclusiva de mentorados." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
 });

@@ -14,6 +14,8 @@ import { requestOwnerAccess } from "@/lib/owner.functions";
 import { useMedia } from "@/lib/media";
 import { DEMO_EMAIL, DEMO_PASSWORD } from "@/lib/demo";
 import { authRedirectUrl } from "@/lib/auth-redirect";
+import { Button } from "@/components/ui/button";
+import { INVALID_RECOVERY_LINK, saveRecoveredPassword, validatePasswordRecovery } from "@/lib/password-recovery";
 
 export function AccessScreen({
   name,
@@ -42,6 +44,7 @@ export function AccessScreen({
   const [checking, setChecking] = useState(true);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
+  const [invalidRecovery, setInvalidRecovery] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", password: "", confirmation: "" });
   useEffect(() => {
     let alive = true;
@@ -50,8 +53,18 @@ export function AccessScreen({
         ? new URLSearchParams(window.location.search).get("type") ||
           new URLSearchParams(window.location.hash.slice(1)).get("type")
         : null;
-    if (token === "invite" || token === "recovery") setMode("recovery");
-    getSetupState()
+    const recovery = forceRecovery || token === "invite" || token === "recovery";
+    if (recovery) setMode("recovery");
+    const check = recovery
+      ? validatePasswordRecovery(window.location.search, window.location.hash).then((valid) => {
+          if (alive && !valid) {
+            setInvalidRecovery(true);
+            setFeedback(INVALID_RECOVERY_LINK);
+          }
+          return { hasAdmin: true };
+        })
+      : getSetupState();
+    check
       .then((state) => {
         if (
           alive &&
@@ -97,8 +110,7 @@ export function AccessScreen({
         setFeedback("Se este e-mail estiver cadastrado, você receberá instruções de recuperação.");
       } else if (mode === "recovery") {
         if (form.password !== form.confirmation) throw new Error("As senhas não coincidem.");
-        const { error } = await supabase.auth.updateUser({ password: form.password });
-        if (error) throw error;
+        await saveRecoveredPassword(form.password);
         window.history.replaceState({}, "", window.location.pathname);
         onSuccess();
       } else if (
@@ -237,7 +249,7 @@ export function AccessScreen({
                   </div>
                 </label>
               )}
-              {(mode === "login" || mode === "recovery") && (
+              {(mode === "login" || (mode === "recovery" && !invalidRecovery)) && (
                 <label className="block text-sm font-medium">
                   Senha
                   <input
@@ -252,7 +264,7 @@ export function AccessScreen({
                   />
                 </label>
               )}
-              {mode === "recovery" && (
+              {mode === "recovery" && !invalidRecovery && (
                 <label className="block text-sm font-medium">
                   Confirmar senha
                   <input
@@ -274,7 +286,16 @@ export function AccessScreen({
                   {feedback}
                 </div>
               )}
-              <button disabled={busy} className="portal-button w-full justify-center py-3">
+              {invalidRecovery && mode === "recovery" ? (
+                <Button type="button" className="w-full" onClick={() => {
+                  window.history.replaceState({}, "", window.location.pathname);
+                  setMode("forgot");
+                  setInvalidRecovery(false);
+                  setFeedback("");
+                }}>
+                  <Mail /> Solicitar novo link
+                </Button>
+              ) : <Button type="submit" disabled={busy} className="portal-button w-full justify-center py-3">
                 {busy && <LoaderCircle className="size-4 animate-spin" />}
                 {mode === "setup"
                   ? "Enviar link de administrador"
@@ -286,7 +307,7 @@ export function AccessScreen({
                         ? "Solicitar aprovação"
                         : "Entrar na plataforma"}
                 <ArrowRight className="size-4" />
-              </button>
+              </Button>}
               {mode === "login" && (
                 <button
                   type="button"

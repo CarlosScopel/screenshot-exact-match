@@ -16,7 +16,7 @@ export function authRedirectUrl(value?: string, type: "invite" | "recovery" = "r
   } catch {
     // Never copy an arbitrary or malformed return URL into an authentication email.
   }
-  const callback = new URL("/", origin);
+  const callback = new URL(type === "recovery" ? "/reset-password" : "/", origin);
   callback.searchParams.set("type", type);
   return callback.href;
 }

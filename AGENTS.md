@@ -28,3 +28,5 @@ use the editor.
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
 <!-- LOVABLE:END -->
+
+- Password recovery uses a public `/reset-password` route and validates the callback with Auth before updating a password; URL type flags alone never prove a valid recovery session. Legacy root callbacks remain supported.
