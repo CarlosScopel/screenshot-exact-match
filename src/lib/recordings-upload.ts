@@ -26,17 +26,58 @@ export function clearRecordingUpload(path: string) {
     /* No persistent upload state. */
   }
 }
-export function safeUploadLocation(value: string, endpoint: string) {
-  const url = new URL(value, endpoint),
-    base = new URL(endpoint);
-  if (
-    url.origin !== base.origin ||
-    !url.pathname.startsWith(`${base.pathname}/`) ||
-    url.username ||
-    url.password
-  )
-    throw new Error("O servidor retornou um endereço de upload inválido.");
-  return url.href;
+/**
+ * A trusted POST response may advertise the storage service's internal host/path.
+ * Use only its TUS resource identifier, never its origin, as an authenticated target.
+ * Cached URLs remain strictly same-origin and are not granted this normalization.
+ */
+export function safeUploadLocation(value: string, endpoint: string, serverResponse = false) {
+  const invalid = () => new Error("O servidor retornou um endereço de upload inválido.");
+  try {
+    const base = new URL(endpoint);
+    const root = base.pathname.replace(/\/+$/, "");
+    const input = value.trim();
+    if (
+      !["https:", "http:"].includes(base.protocol) ||
+      base.username ||
+      base.password ||
+      base.search ||
+      base.hash ||
+      !root.endsWith("/storage/v1/upload/resumable") ||
+      !input ||
+      Array.from(input).some(
+        (character) => character.charCodeAt(0) <= 32 || [92, 127].includes(character.charCodeAt(0)),
+      )
+    )
+      throw invalid();
+    // Bare resource IDs are relative to the collection; other references follow URL rules.
+    const bareId = /^[A-Za-z0-9_~.%+=-]+$/.test(input) && input !== "." && input !== "..";
+    const url = new URL(input, base.origin + root + (bareId ? "/" : ""));
+    if (
+      !["https:", "http:"].includes(url.protocol) ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      (!serverResponse && url.origin !== base.origin)
+    )
+      throw invalid();
+    const prefixes = serverResponse
+      ? [root + "/", "/storage/v1/upload/resumable/", "/upload/resumable/"]
+      : [root + "/"];
+    const prefix = prefixes.find((candidate) => url.pathname.startsWith(candidate));
+    if (!prefix) throw invalid();
+    const resource = url.pathname.slice(prefix.length);
+    // Supabase resource IDs may contain base64 characters, including encoded /, + and =.
+    if (!resource || !/^(?:[A-Za-z0-9_~.+=/-]|%2[bBfF]|%3[dD])+$/.test(resource)) throw invalid();
+    const parts = decodeURIComponent(resource).split("/");
+    if (parts.some((part) => part === "." || part === "..")) throw invalid();
+    const target = new URL(base.origin + root + "/" + resource);
+    if (target.origin !== base.origin || !target.pathname.startsWith(root + "/")) throw invalid();
+    return target.href;
+  } catch {
+    throw invalid();
+  }
 }
 function errorFor(status: number) {
   if (status === 413)
@@ -92,6 +133,7 @@ export async function tusRecordingUpload(
     return fetch(target, {
       ...init,
       signal,
+      redirect: "error",
       headers: { ...(await headers()), "Tus-Resumable": "1.0.0", ...init.headers },
     });
   };
@@ -132,7 +174,7 @@ export async function tusRecordingUpload(
     if (response.status !== 201) throw errorFor(response.status);
     const location = response.headers.get("Location");
     if (!location) throw new Error("O servidor não forneceu o endereço para continuar o upload.");
-    url = safeUploadLocation(location, endpoint);
+    url = safeUploadLocation(location, endpoint, true);
     remember(path, { url, name: file.name, size: file.size, modified: file.lastModified });
   }
   if (!Number.isSafeInteger(offset) || offset < 0 || offset > file.size)
