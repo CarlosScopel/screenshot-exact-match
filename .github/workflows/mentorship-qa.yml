@@ -1,0 +1,82 @@
+name: Validate mentorship terms and payments
+on:
+  push:
+    branches: ['qa/mentorship-plans-20261112']
+    paths: ['.github/workflows/mentorship-qa.yml','qa-integrate-mentorship.py','src/lib/mentorship*','src/lib/use-mentorship.ts','src/components/portal/MentorshipPanel.tsx','src/test/mentorship*','scripts/*mentorship*.sql']
+permissions:
+  contents: write
+defaults:
+  run:
+    shell: bash
+jobs:
+  mentorship:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated_test_only
+          POSTGRES_DB: ordem_billing_qa
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd 'pg_isready -U postgres'
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: isolated_test_only
+      PGDATABASE: ordem_billing_qa
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Apply localized integration to the inspected source
+        run: |
+          mkdir -p qa-reports
+          python3 qa-integrate-mentorship.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/setup-mentorship-billing.sql'); s=p.read_text(); anchor=' financial_change:=is_new OR old.total_cents'
+          assert s.count(anchor)==1
+          s=s.replace(anchor,' PERFORM 1 FROM public.mentorship_installments WHERE plan_id=p_id ORDER BY id FOR UPDATE;\n'+anchor)
+          p.write_text(s)
+          p=Path('scripts/validate-mentorship.sql'); s=p.read_text(); s=s.replace('GRANT SELECT ON storage.objects TO anon;','GRANT SELECT ON storage.objects TO anon;\nGRANT SELECT ON storage.buckets TO authenticated;'); p.write_text(s)
+          PY
+          bun install --frozen-lockfile
+          bunx --no-install prettier --write src/lib/mentorship.ts src/lib/mentorship-api.ts src/lib/use-mentorship.ts src/components/portal/MentorshipPanel.tsx src/components/portal/AdminPage.tsx src/components/portal/Portal.tsx src/test/mentorship*.ts* src/test/lesson-file-page.test.tsx
+      - name: Database, access expiration, cents, installments and private evidence
+        run: psql -v ON_ERROR_STOP=1 -f scripts/validate-mentorship.sql 2>&1 | tee qa-reports/billing-sql.log
+      - name: TypeScript
+        if: always()
+        run: bunx --no-install tsc --noEmit 2>&1 | tee qa-reports/typescript.log
+      - name: Unit and component tests
+        if: always()
+        run: bun run test --reporter=default --reporter=json --outputFile=qa-reports/vitest.json 2>&1 | tee qa-reports/tests.log
+      - name: Lint changed source and tests
+        if: always()
+        run: bunx --no-install eslint src/lib/mentorship.ts src/lib/mentorship-api.ts src/lib/use-mentorship.ts src/components/portal/MentorshipPanel.tsx src/components/portal/AdminPage.tsx src/components/portal/Portal.tsx src/test/mentorship*.ts* src/test/lesson-file-page.test.tsx 2>&1 | tee qa-reports/lint.log
+      - name: Production build
+        if: always()
+        run: bun run build 2>&1 | tee qa-reports/build.log
+      - name: Preserve exact tested files on QA branch only
+        run: |
+          files=(scripts/setup-mentorship-billing.sql scripts/validate-mentorship.sql src/lib/mentorship.ts src/lib/mentorship-api.ts src/lib/use-mentorship.ts src/components/portal/MentorshipPanel.tsx src/components/portal/AdminPage.tsx src/components/portal/Portal.tsx src/test/mentorship*.ts* src/test/lesson-file-page.test.tsx)
+          git add "${files[@]}"
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'test: preserve verified mentorship plan implementation [skip ci]'
+          git push origin HEAD:qa/mentorship-plans-20261112
+          git rev-parse HEAD > qa-reports/tested-commit.txt
+          git ls-tree HEAD "${files[@]}" > qa-reports/tested-files.txt
+          git archive --format=tar.gz --output=qa-reports/tested-source.tar.gz HEAD "${files[@]}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mentorship-evidence
+          path: qa-reports/
+          retention-days: 7
