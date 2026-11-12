@@ -44,12 +44,12 @@ jobs:
           await writeFile('qa-recordings.html','<html lang="pt-BR"><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="root"></div><script type="module" src="/qa-recordings.tsx"></script></body></html>');
           await writeFile('qa-recordings.tsx',`import {createRoot} from 'react-dom/client';import {RecordingsPanel} from './src/components/portal/RecordingsPanel';import {supabase} from './src/integrations/supabase/client';import './src/styles.css';supabase.auth.getSession=async()=>({data:{session:{access_token:'qa-session'}},error:null}) as never;createRoot(document.getElementById('root')!).render(<main className="min-h-screen p-4 sm:p-8 max-w-5xl mx-auto"><RecordingsPanel userId="${uid}" admin={new URLSearchParams(location.search).has('admin')}/></main>);`);
           const server=await createServer({configFile:false,root:process.cwd(),plugins:[react(),tailwind()],resolve:{alias:{'@':path.resolve('src')}},server:{host:'127.0.0.1',port:4179}});await server.listen();
-          const browser=await chromium.launch({headless:true});const errors=[],results=[];
+          const browser=await chromium.launch({headless:true});const errors=[],results=[];let currentPage=null;
           try{
             for(const [name,width,height] of [['desktop',1440,1080],['mobile',390,844]]){
               const recordings=[{id,user_id:uid,title:'Call semanal — estratégias e próximos passos',description:'Gravação demonstrativa para testar o player.',recorded_on:'2026-11-12',file_path:uid+'/'+id+'/recording.webm',file_name:'qa-fixture.webm',mime_type:'video/webm',size_bytes:fixture.length,status:'published',created_at:'2026-11-12T00:00:00Z'}];
               const learning={content:'Minhas anotações da call.',revision:0,position_seconds:1};let received=0,uploaded=false,saved=false;
-              const page=await browser.newPage({viewport:{width,height}});page.on('pageerror',error=>errors.push(String(error)));
+              const page=await browser.newPage({viewport:{width,height}});currentPage=page;page.on('pageerror',error=>errors.push(String(error)));
               const cors={'access-control-allow-origin':'*','access-control-allow-headers':'*','access-control-allow-methods':'GET,POST,HEAD,PATCH,OPTIONS','access-control-expose-headers':'Location,Upload-Offset,Tus-Resumable'};
               await page.route('**/*',async route=>{
                 const req=route.request(),url=new URL(req.url()),method=req.method();if(url.hostname==='127.0.0.1')return route.continue();
@@ -90,7 +90,7 @@ jobs:
               await page.waitForFunction(()=>document.querySelector('video').currentTime>1.2);
               await page.locator('video').evaluate(v=>v.pause());
               await page.getByRole('combobox',{name:/Velocidade/}).selectOption('1.5');
-              await page.getByLabel('Minhas anotações privadas',{exact:true}).fill('Plano da próxima call: executar as tarefas.');
+              await page.getByRole('textbox',{name:/Minhas anotações privadas/}).fill('Plano da próxima call: executar as tarefas.');
               await page.getByRole('button',{name:'Salvar anotações',exact:true}).click();
               await page.getByText('Anotações salvas.',{exact:true}).waitFor();
               if(!saved||await page.getByRole('button',{name:'Enviar gravação',exact:true}).count())throw Error('student access problem');
@@ -98,10 +98,11 @@ jobs:
               await page.screenshot({path:`qa-reports/${name}-student.png`,fullPage:true});
               await page.reload();await page.getByRole('button',{name:'Assistir gravação',exact:true}).first().click();
               await page.waitForFunction(()=>document.querySelector('textarea')?.value==='Plano da próxima call: executar as tarefas.');
-              results.push({viewport:name,adminUpload:true,videoDecodedAndPlayed:true,speedControl:true,noteSavedAndReloaded:true,studentCannotUpload:true,noHorizontalOverflow:true});await page.close();
+              results.push({viewport:name,adminUpload:true,videoDecodedAndPlayed:true,speedControl:true,noteSavedAndReloaded:true,studentCannotUpload:true,noHorizontalOverflow:true});await page.close();currentPage=null;
             }
             if(errors.length)throw Error(errors.join('\n'));
-          }finally{await writeFile('qa-reports/browser.json',JSON.stringify({results,errors,backend:'intercepted fictitious RPCs and local generated video; no production files accessed'},null,2));await browser.close();await server.close();}
+          }catch(error){await writeFile('qa-reports/failure.txt',String(error));if(currentPage&&!currentPage.isClosed()){await currentPage.screenshot({path:'qa-reports/failure.png',fullPage:true});await writeFile('qa-reports/failure-dom.html',await currentPage.content());}throw error;}
+          finally{await writeFile('qa-reports/browser.json',JSON.stringify({results,errors,backend:'intercepted fictitious RPCs and local generated video; no production files accessed'},null,2));await browser.close();await server.close();}
           JS
       - uses: actions/upload-artifact@v4
         if: always()
