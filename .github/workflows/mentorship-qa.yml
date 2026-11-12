@@ -47,6 +47,7 @@ jobs:
           p=Path('scripts/setup-mentorship-billing.sql'); s=p.read_text(); anchor=' financial_change:=is_new OR old.total_cents'
           assert s.count(anchor)==1
           s=s.replace(anchor,' PERFORM 1 FROM public.mentorship_installments WHERE plan_id=p_id ORDER BY id FOR UPDATE;\n'+anchor)
+          s=s.replace("p_duration_count>CASE WHEN p_duration_unit='years' THEN 10 ELSE 120 END OR", "p_duration_count>(CASE WHEN p_duration_unit='years' THEN 10 ELSE 120 END) OR")
           p.write_text(s)
           p=Path('scripts/validate-mentorship.sql'); s=p.read_text(); s=s.replace('GRANT SELECT ON storage.objects TO anon;','GRANT SELECT ON storage.objects TO anon;\nGRANT SELECT ON storage.buckets TO authenticated;'); p.write_text(s)
           PY
