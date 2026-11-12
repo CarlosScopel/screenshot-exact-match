@@ -1,0 +1,66 @@
+name: Confirm published materials fix
+on:
+  push:
+    branches: ['qa/materials-upload-20261112']
+    paths: ['.github/workflows/materials-public-check.yml']
+permissions:
+  contents: read
+jobs:
+  public-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Isolated read-only browser tooling
+        run: |
+          npm install --prefix "$RUNNER_TEMP/materials-browser" --no-save --package-lock=false playwright
+          node "$RUNNER_TEMP/materials-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Confirm corrected form code in public assets without logging in
+        env:
+          QA_BASE_URL: https://pixel-perfect-replay-54723.lovable.app
+        run: |
+          PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/materials-browser/node_modules/playwright/index.mjs" node --input-type=module <<'JS'
+          import { pathToFileURL } from 'node:url';
+          import { writeFile, mkdir } from 'node:fs/promises';
+          import { createHash } from 'node:crypto';
+          const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE_PATH).href);
+          const browser = await chromium.launch({headless:true});
+          const report = {target:process.env.QA_BASE_URL,revision:'e1984e8b98074948b3a77098ed1bb64d1013a72b', productionDataChanged:false,authenticatedUploadTested:false,confirmed:false,attempts:[]};
+          try {
+            for(let attempt=0;attempt<5;attempt++) {
+              const page = await browser.newPage();
+              const assets = new Map(); const pending=[];
+              page.on('response', response => {
+                const u = new URL(response.url());
+                if(u.origin===new URL(process.env.QA_BASE_URL).origin && u.pathname.endsWith('.js')) {
+                  pending.push(response.text().then(text=>assets.set(u.pathname,text)).catch(()=>{}));
+                }
+              });
+              await page.goto(process.env.QA_BASE_URL+'?materials_check='+Date.now(),{waitUntil:'networkidle',timeout:60000});
+              await page.getByRole('button',{name:'Entrar na plataforma',exact:true}).waitFor({timeout:30000});
+              await Promise.all(pending);
+              const required=['Criar primeira aula','Aula do material','Crie ou selecione uma aula deste módulo antes de enviar o arquivo.'];
+              const checks=required.map(text=>({text,found:[...assets.values()].some(code=>code.includes(text))}));
+              report.attempts.push({checks,assets:[...assets].map(([path,code])=>({path,sha256:createHash('sha256').update(code).digest('hex')}))});
+              await page.close();
+              if(checks.every(c=>c.found)){report.confirmed=true;break;}
+              await new Promise(resolve=>setTimeout(resolve,8000));
+            }
+            if(!report.confirmed) throw new Error('The corrected materials form was not found in the public JavaScript assets.');
+          } catch(error){report.error=String(error);process.exitCode=1;}
+          finally {
+            report.checkedAt=new Date().toISOString();
+            await mkdir('qa-reports',{recursive:true});
+            await writeFile('qa-reports/published-materials.json',JSON.stringify(report,null,2));
+            console.log(JSON.stringify(report,null,2));
+            await browser.close();
+          }
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: materials-public-evidence
+          path: qa-reports/
+          retention-days: 7
