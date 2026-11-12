@@ -1,0 +1,185 @@
+name: Validate mentee management tabs
+on:
+  push:
+    branches: ['qa/mentee-tabs-20261112']
+    paths: ['.github/workflows/qa-mentee-tabs.yml']
+permissions:
+  contents: write
+defaults:
+  run:
+    shell: bash
+jobs:
+  tabs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Install existing locked dependencies
+        run: bun install --frozen-lockfile
+      - name: Apply narrowly scoped management tab change
+        run: |
+          mkdir -p qa-reports
+          python3 <<'PY'
+          from pathlib import Path
+          import hashlib,textwrap
+          p=Path('src/components/portal/AdminPage.tsx')
+          s=p.read_text()
+          b=s.encode()
+          assert hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest()=='2a6cf1904ae079feb9008f4822089cbbe0a6e640','Unexpected base source'
+          def replace_once(old,new):
+              global s
+              assert s.count(old)==1,old
+              s=s.replace(old,new,1)
+          replace_once('import { RecordingsPanel } from "./RecordingsPanel";','import { RecordingsPanel } from "./RecordingsPanel";\nimport { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";')
+          replace_once('  const [selected, setSelected] = useState<Row<"profiles"> | null>(null);','  const [selected, setSelected] = useState<Row<"profiles"> | null>(null);\n  const [detailTab, setDetailTab] = useState<"learning" | "billing">("learning");')
+          start=s.index('          <div className="mt-6">\n            <MentorshipPanel')
+          split=s.index('          <div className="mt-6">\n            <RecordingsPanel',start)
+          end=s.index('          <div className="flex gap-3 mt-6 flex-wrap">',split)
+          billing=s[start:split]
+          learning=s[split:end]
+          tabs='''          <Tabs
+                      key={selected.id}
+                      value={detailTab}
+                      onValueChange={(value) => setDetailTab(value === "billing" ? "billing" : "learning")}
+                      className="mt-6"
+                    >
+                      <TabsList aria-label="Seções do mentorado" className="grid h-auto w-full grid-cols-1 gap-1 sm:grid-cols-2">
+                        <TabsTrigger value="learning" className="whitespace-normal px-3 py-2">Aulas e gravações</TabsTrigger>
+                        <TabsTrigger value="billing" className="whitespace-normal px-3 py-2">Plano e pagamentos</TabsTrigger>
+                      </TabsList>
+                      {/* Keep forms and uploads mounted while only the selected section is visible. */}
+                      <TabsContent value="learning" forceMount hidden={detailTab !== "learning"}>
+          '''+textwrap.indent(learning,'    ')+'''            </TabsContent>
+                      <TabsContent value="billing" forceMount hidden={detailTab !== "billing"}>
+          '''+textwrap.indent(billing,'    ')+'''            </TabsContent>
+                    </Tabs>
+          '''
+          s=s[:start]+tabs+s[end:]
+          replace_once('                        setMessage("");\n                        setSelected(p);','                        setMessage("");\n                        setDetailTab("learning");\n                        setSelected(p);')
+          p.write_text(s)
+          p=Path('src/test/mentee-detail.test.tsx')
+          s=p.read_text()
+          old='      Plano do mentorado selecionado\n'
+          assert s.count(old)==1
+          s=s.replace(old,'      <p>Plano do mentorado selecionado</p>\n      <input aria-label="Valor do plano em edição" defaultValue="" />\n')
+          old='vi.mock("@/components/portal/RecordingsPanel", () => ({ RecordingsPanel: () => null }));'
+          assert old in s
+          s=s.replace(old,'''vi.mock("@/components/portal/RecordingsPanel", () => ({
+            RecordingsPanel: ({ userId }: { userId: string }) => (
+              <section aria-label="Gravações exclusivas" data-user-id={userId}>
+                <input aria-label="Título da gravação em edição" defaultValue="" />
+              </section>
+            ),
+          }));''')
+          old='expect(screen.getByRole("region", { name: "Plano e pagamentos" })).toHaveAttribute('
+          assert old in s
+          s=s.replace(old,'expect(screen.getByText("Plano do mentorado selecionado").closest("section")).toHaveAttribute(')
+          p.write_text(s)
+          PY
+          cat >> src/test/mentee-detail.test.tsx <<'TSX'
+
+          function selectSection(name: string) {
+            fireEvent.keyDown(screen.getByRole("tab", { name, exact: true }), { key: "Enter" });
+          }
+
+          describe("Separação de aulas e pagamentos do mentorado", () => {
+            it("abre aulas e gravações sem exibir informações financeiras", () => {
+              mount();
+              manage("ana@example.invalid");
+              expect(screen.getByRole("tab", { name: "Aulas e gravações" })).toHaveAttribute("aria-selected", "true");
+              expect(screen.getByRole("tabpanel", { name: "Aulas e gravações" })).toBeVisible();
+              expect(screen.getByRole("region", { name: "Gravações exclusivas" })).toHaveAttribute("data-user-id", ids[0]);
+              expect(screen.getByText("Plano do mentorado selecionado")).not.toBeVisible();
+              expect(screen.queryByRole("tabpanel", { name: "Plano e pagamentos" })).not.toBeInTheDocument();
+            });
+            it("mostra somente os pagamentos ao selecionar a aba financeira", () => {
+              mount();
+              manage("ana@example.invalid");
+              selectSection("Plano e pagamentos");
+              expect(screen.getByRole("tab", { name: "Plano e pagamentos" })).toHaveAttribute("aria-selected", "true");
+              expect(screen.getByRole("tabpanel", { name: "Plano e pagamentos" })).toBeVisible();
+              expect(screen.getByRole("region", { name: "Plano e pagamentos" })).toHaveAttribute("data-user-id", ids[0]);
+              expect(screen.getByLabelText("Título da gravação em edição")).not.toBeVisible();
+              expect(screen.queryByRole("heading", { name: "Acesso individual aos treinamentos" })).not.toBeInTheDocument();
+              expect(screen.queryByRole("heading", { name: "Turmas" })).not.toBeInTheDocument();
+              expect(screen.queryByRole("table")).not.toBeInTheDocument();
+              expect(mock.from).not.toHaveBeenCalled();
+            });
+            it("mantém formulários e instâncias de upload ao alternar as abas", () => {
+              mount();
+              manage("ana@example.invalid");
+              const recordingInput = screen.getByLabelText("Título da gravação em edição");
+              fireEvent.change(recordingInput, { target: { value: "Call semanal em andamento" } });
+              selectSection("Plano e pagamentos");
+              const planInput = screen.getByLabelText("Valor do plano em edição");
+              fireEvent.change(planInput, { target: { value: "5000" } });
+              selectSection("Aulas e gravações");
+              expect(screen.getByLabelText("Título da gravação em edição")).toBe(recordingInput);
+              expect(recordingInput).toHaveValue("Call semanal em andamento");
+              expect(recordingInput).toBeVisible();
+              expect(planInput).not.toBeVisible();
+              selectSection("Plano e pagamentos");
+              expect(screen.getByLabelText("Valor do plano em edição")).toBe(planInput);
+              expect(planInput).toHaveValue("5000");
+              expect(planInput).toBeVisible();
+            });
+            it("reinicia a aba ao trocar de mentorado sem reaproveitar formulários", () => {
+              mount();
+              manage("ana@example.invalid");
+              selectSection("Plano e pagamentos");
+              fireEvent.change(screen.getByLabelText("Valor do plano em edição"), { target: { value: "5000" } });
+              fireEvent.click(screen.getByRole("button", { name: "Voltar aos mentorados" }));
+              expectGeneralList();
+              manage("bruno@example.invalid");
+              expectOnlySelected(ids[1]);
+              expect(screen.getByRole("tab", { name: "Aulas e gravações" })).toHaveAttribute("aria-selected", "true");
+              expect(screen.getByRole("region", { name: "Gravações exclusivas" })).toHaveAttribute("data-user-id", ids[1]);
+              selectSection("Plano e pagamentos");
+              expect(screen.getByLabelText("Valor do plano em edição")).toHaveValue("");
+              expect(screen.getByRole("region", { name: "Plano e pagamentos" })).toHaveAttribute("data-user-id", ids[1]);
+              expect(screen.queryByText("ana@example.invalid")).not.toBeInTheDocument();
+            });
+            it("mantém o perfil do mentorado editável na aba de pagamentos", async () => {
+              const props = mount();
+              manage("ana@example.invalid");
+              selectSection("Plano e pagamentos");
+              fireEvent.change(screen.getByDisplayValue("Ana Teste"), { target: { value: "Ana Atualizada" } });
+              fireEvent.click(screen.getByRole("button", { name: "Salvar mentorado" }));
+              await waitFor(() => expect(props.reload).toHaveBeenCalled());
+              expect(mock.eq).toHaveBeenCalledWith("id", ids[0]);
+              expect(screen.getByRole("tab", { name: "Plano e pagamentos" })).toHaveAttribute("aria-selected", "true");
+              expect(screen.getByText("Plano do mentorado selecionado")).toBeVisible();
+            });
+          });
+          TSX
+          bunx prettier --write src/components/portal/AdminPage.tsx src/test/mentee-detail.test.tsx
+          git diff --stat | tee qa-reports/diff-stat.txt
+          git diff -- src/components/portal/AdminPage.tsx src/test/mentee-detail.test.tsx > qa-reports/change.diff
+      - name: TypeScript
+        run: bunx tsc --noEmit 2>&1 | tee qa-reports/typescript.log
+      - name: All unit and component tests
+        run: bun run test --reporter=default --reporter=json --outputFile.json=qa-reports/vitest.json 2>&1 | tee qa-reports/tests.log
+      - name: Lint only modified source and tests
+        run: bunx eslint src/components/portal/AdminPage.tsx src/test/mentee-detail.test.tsx 2>&1 | tee qa-reports/lint.log
+      - name: Production build
+        run: bun run build 2>&1 | tee qa-reports/build.log
+      - name: Preserve exact tested application files on QA branch only
+        run: |
+          test "$GITHUB_REF_NAME" = 'qa/mentee-tabs-20261112'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/components/portal/AdminPage.tsx src/test/mentee-detail.test.tsx
+          git commit -m 'fix: separar aulas e pagamentos na gestao individual [skip ci]'
+          git push origin HEAD:refs/heads/qa/mentee-tabs-20261112
+          git rev-parse HEAD > qa-reports/tested-commit.txt
+          git ls-tree HEAD src/components/portal/AdminPage.tsx src/test/mentee-detail.test.tsx > qa-reports/tested-files.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mentee-tabs-tests
+          path: qa-reports/
+          retention-days: 7
