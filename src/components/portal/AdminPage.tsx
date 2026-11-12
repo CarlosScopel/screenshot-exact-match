@@ -622,6 +622,8 @@ export function AdminPage({ page, data, reload, go, settings, refreshSettings }:
         </div>
         {module && (
           <LessonMaterials
+            key={module}
+            moduleId={module}
             lessonIds={data.lessons
               .filter((l) => l.module_id === module)
               .map((l) => ({ id: l.id, title: l.title }))}
@@ -712,25 +714,39 @@ function Stat({ name, value }: { name: string; value: number }) {
   );
 }
 function LessonMaterials({
+  moduleId,
   lessonIds,
   data,
   reload,
 }: {
+  moduleId: string;
   lessonIds: { id: string; title: string }[];
   data: PortalData;
   reload: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [creatingLesson, setCreatingLesson] = useState(false);
+  const [selectedLessonId, setSelectedLessonId] = useState("");
+  // A single lesson needs no extra selection. Never keep an ID from a removed lesson.
+  const lessonId = lessonIds.some((lesson) => lesson.id === selectedLessonId)
+    ? selectedLessonId
+    : lessonIds.length === 1
+      ? lessonIds[0]!.id
+      : "";
   const add = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (busy) return;
+    const formElement = event.currentTarget;
     setBusy(true);
     setMessage("");
     try {
-      const form = new FormData(event.currentTarget);
-      const id = String(form.get("lesson"));
+      const form = new FormData(formElement);
+      const id = String(form.get("lesson") || "");
+      if (!id || !lessonIds.some((lesson) => lesson.id === id))
+        throw new Error("Selecione uma aula deste módulo antes de enviar o material.");
       const file = form.get("file");
-      const title = String(form.get("title"));
+      const title = String(form.get("title") || "").trim();
       if (!(file instanceof File) || !file.size) throw new Error("Selecione um arquivo.");
       const path = await uploadMaterial(file, "lesson", id);
       const { error } = await supabase
@@ -738,7 +754,8 @@ function LessonMaterials({
         .insert({ lesson_id: id, title: title || file.name, file_path: path });
       if (error) throw error;
       await reload();
-      (event.target as HTMLFormElement).reset();
+      formElement.reset();
+      setSelectedLessonId(id);
       setMessage("Material adicionado.");
     } catch (e) {
       setMessage(String(e));
@@ -750,15 +767,48 @@ function LessonMaterials({
     <div className="surface p-6 mt-6">
       <h3 className="font-semibold mb-4">Materiais complementares das aulas</h3>
       {!lessonIds.length && (
-        <p className="text-sm text-muted-foreground mb-4">
-          Nenhuma aula cadastrada ainda. Crie uma aula acima (treinamento → módulo → aula) para
-          poder anexar materiais.
-        </p>
+        <div className="mb-4 space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Este módulo ainda não tem aulas. Crie a primeira aula aqui para anexar o material. Você
+            pode deixá-la como rascunho e adicionar o vídeo depois.
+          </p>
+          {!creatingLesson && (
+            <button
+              type="button"
+              className="portal-outline"
+              onClick={() => setCreatingLesson(true)}
+            >
+              <Plus className="size-4" />
+              Criar aula neste módulo
+            </button>
+          )}
+        </div>
+      )}
+      {creatingLesson && (
+        <EditPanel
+          table="lessons"
+          title="Criar aula para anexar material"
+          fields={lessonFields}
+          extra={{ module_id: moduleId }}
+          afterSave={async (id) => {
+            await reload();
+            setSelectedLessonId(id);
+          }}
+          onClose={() => setCreatingLesson(false)}
+        />
       )}
       <form className="grid md:grid-cols-4 gap-3" onSubmit={add}>
-        <select name="lesson" className="portal-input" required defaultValue="">
+        <select
+          name="lesson"
+          aria-label="Aula do material"
+          className="portal-input"
+          required
+          disabled={busy || !lessonIds.length}
+          value={lessonId}
+          onChange={(event) => setSelectedLessonId(event.target.value)}
+        >
           <option value="" disabled>
-            {lessonIds.length ? "Selecione a aula" : "Nenhuma aula disponível"}
+            {lessonIds.length ? "Selecione a aula" : "Crie uma aula para continuar"}
           </option>
           {lessonIds.map((l) => (
             <option key={l.id} value={l.id}>
@@ -766,11 +816,23 @@ function LessonMaterials({
             </option>
           ))}
         </select>
-        <input name="title" placeholder="Título do material" className="portal-input" />
-        <input name="file" aria-label="Arquivo" type="file" required className="portal-input" />
-        <button className="portal-button" disabled={busy || !lessonIds.length}>
+        <input
+          name="title"
+          placeholder="Título do material"
+          className="portal-input"
+          disabled={busy || !lessonIds.length}
+        />
+        <input
+          name="file"
+          aria-label="Arquivo"
+          type="file"
+          required
+          className="portal-input"
+          disabled={busy || !lessonIds.length}
+        />
+        <button className="portal-button" disabled={busy || !lessonId}>
           <Upload className="size-4" />
-          Enviar arquivo
+          {busy ? "Enviando..." : "Enviar arquivo"}
         </button>
       </form>
       <Notice text={message} />
