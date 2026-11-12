@@ -1,0 +1,45 @@
+name: Private recordings policies
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  recordings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated_test_only
+          POSTGRES_DB: ordem_recordings_qa
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: isolated_test_only
+      PGDATABASE: ordem_recordings_qa
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate recordings isolation, expiry and private notes in disposable PostgreSQL
+        run: |
+          mkdir -p qa-reports
+          psql -v ON_ERROR_STOP=1 -f scripts/validate-recordings.sql 2>&1 | tee qa-reports/recordings-policies.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recordings-policy-evidence
+          path: qa-reports/
+          retention-days: 7

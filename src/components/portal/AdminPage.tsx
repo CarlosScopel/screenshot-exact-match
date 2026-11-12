@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { inviteMentee, resendInvite, deleteMentee, reviewMentee } from "@/lib/admin.functions";
 import { approvalState } from "@/lib/approval";
 import { MentorshipPanel } from "./MentorshipPanel";
+import { RecordingsPanel } from "./RecordingsPanel";
 import { uploadMaterial, uploadMedia } from "@/lib/media";
 import { displayPlatformName, formatDate, type PortalData, type Row } from "@/lib/portal";
 
@@ -28,6 +29,7 @@ type View =
   | "announcements"
   | "profile"
   | "billing"
+  | "recordings"
   | "admin"
   | "manage-trainings"
   | "manage-library"
@@ -1217,6 +1219,9 @@ function Mentees({ data, reload }: { data: PortalData; reload: () => Promise<voi
               admin
               onChanged={reload}
             />
+          </div>
+          <div className="mt-6">
+            <RecordingsPanel key={"recordings-" + selected.id} userId={selected.id} admin />
           </div>
           <h3 className="font-semibold mt-6 mb-3">Acesso individual aos treinamentos</h3>
           <div className="grid sm:grid-cols-2 gap-2">
