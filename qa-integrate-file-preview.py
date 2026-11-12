@@ -20,3 +20,5 @@ start = s.index('          {data.materials\n            .filter((m) => m.lesson_
 end = s.index('\n        </div>\n        <aside', start)
 s = s[:start] + '          {source && lessonMaterials.length > 0 && (\n            <LessonFiles materials={lessonMaterials} />\n          )}' + s[end:]
 path.write_text(s)
+test = Path('src/test/lesson-files.test.tsx')
+test.write_text(test.read_text().replace('static createObjectURL', 'static override createObjectURL').replace('static revokeObjectURL', 'static override revokeObjectURL'))
