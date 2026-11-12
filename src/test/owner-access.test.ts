@@ -1,5 +1,6 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
+import { authRedirectUrl } from "@/lib/auth-redirect";
 import {
   OWNER_EMAIL,
   isOwnerEmail,
@@ -165,7 +166,13 @@ describe("Owner invitation", () => {
       verificationRequired: true,
     });
     assert.deepEqual(f.calls, [
-      { method: "invite", args: [OWNER_EMAIL, { data: { full_name: "Carlos" } }] },
+      {
+        method: "invite",
+        args: [
+          OWNER_EMAIL,
+          { data: { full_name: "Carlos" }, redirectTo: authRedirectUrl(undefined, "invite") },
+        ],
+      },
     ]);
   });
   it("sends a fresh link to an existing account without overwriting its password", async () => {
@@ -176,7 +183,10 @@ describe("Owner invitation", () => {
       ["invite", "otp"],
     );
     assert.deepEqual(f.calls[1]?.args, [
-      { email: OWNER_EMAIL, options: { shouldCreateUser: false } },
+      {
+        email: OWNER_EMAIL,
+        options: { shouldCreateUser: false, emailRedirectTo: authRedirectUrl() },
+      },
     ]);
   });
   it("does not bypass auth rate limits or SMTP failures", async () => {

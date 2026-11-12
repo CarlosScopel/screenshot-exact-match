@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
+import { authRedirectUrl } from "./auth-redirect";
 
 // The owner is configured by the repository, never by signup metadata or form input.
 export const OWNER_EMAIL = "dudu.escopelcarlos253@gmail.com";
@@ -55,11 +56,16 @@ export function canActivateOwner(
 }
 
 /** Send a link, not a password or an already-authenticated administrator session. */
-export async function sendOwnerAccess(admin: AdminClient, input: { name: string; email: string }) {
+export async function sendOwnerAccess(
+  admin: AdminClient,
+  input: { name: string; email: string },
+  requestUrl?: string,
+) {
   if (!isOwnerEmail(input.email))
     throw new Error("Este e-mail não está autorizado para a administração.");
   const { error } = await admin.auth.admin.inviteUserByEmail(OWNER_EMAIL, {
     data: { full_name: input.name },
+    redirectTo: authRedirectUrl(requestUrl, "invite"),
   });
   if (error) {
     // Existing accounts prove ownership again instead of having their password overwritten.
@@ -70,7 +76,7 @@ export async function sendOwnerAccess(admin: AdminClient, input: { name: string;
     }
     const { error: otpError } = await admin.auth.signInWithOtp({
       email: OWNER_EMAIL,
-      options: { shouldCreateUser: false },
+      options: { shouldCreateUser: false, emailRedirectTo: authRedirectUrl(requestUrl) },
     });
     if (otpError)
       throw new Error("Não foi possível enviar o link de acesso. Tente novamente mais tarde.");

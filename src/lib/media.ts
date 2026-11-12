@@ -53,9 +53,18 @@ export async function uploadMaterial(file: File, scope: "lesson" | "library", id
 }
 
 export async function openMaterial(path: string) {
-  const { data, error } = await supabase.storage
-    .from("materials")
-    .createSignedUrl(path, 120, { download: true });
-  if (error || !data) throw error ?? new Error("Arquivo indisponível");
-  window.open(data.signedUrl, "_blank", "noopener");
+  // Open synchronously in the user's click, before awaiting the protected URL.
+  const popup = window.open("about:blank", "_blank");
+  if (popup) popup.opener = null;
+  try {
+    const { data, error } = await supabase.storage
+      .from("materials")
+      .createSignedUrl(path, 120, { download: true });
+    if (error || !data) throw error ?? new Error("Arquivo indisponível");
+    if (popup && !popup.closed) popup.location.replace(data.signedUrl);
+    else window.location.assign(data.signedUrl);
+  } catch (error) {
+    popup?.close();
+    throw error;
+  }
 }

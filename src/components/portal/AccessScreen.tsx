@@ -13,6 +13,7 @@ import { getSetupState, requestMenteeAccess } from "@/lib/admin.functions";
 import { requestOwnerAccess } from "@/lib/owner.functions";
 import { useMedia } from "@/lib/media";
 import { DEMO_EMAIL, DEMO_PASSWORD } from "@/lib/demo";
+import { authRedirectUrl } from "@/lib/auth-redirect";
 
 export function AccessScreen({
   name,
@@ -90,7 +91,7 @@ export function AccessScreen({
         );
       } else if (mode === "forgot") {
         const { error } = await supabase.auth.resetPasswordForEmail(form.email, {
-          redirectTo: window.location.origin,
+          redirectTo: authRedirectUrl(window.location.origin),
         });
         if (error) throw error;
         setFeedback("Se este e-mail estiver cadastrado, você receberá instruções de recuperação.");

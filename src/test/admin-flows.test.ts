@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { APPLICATION_PENDING, PENDING_APPROVAL, REJECTED_APPROVAL } from "@/lib/approval";
+import { authRedirectUrl } from "@/lib/auth-redirect";
+
+vi.mock("@tanstack/react-start/server", () => ({
+  getRequest: () => new Request("https://pixel-perfect-replay-54723.lovable.app/"),
+}));
 
 const db = vi.hoisted(() => ({
   from: vi.fn(),
@@ -169,7 +174,9 @@ describe("Aprovação administrativa no servidor", () => {
     expect(write.update).toHaveBeenCalledWith({ status: "active", admin_notes: null });
     expect(write.eq).toHaveBeenCalledWith("status", "suspended");
     expect(write.eq).toHaveBeenCalledWith("admin_notes", APPLICATION_PENDING);
-    expect(db.auth.resetPasswordForEmail).toHaveBeenCalledWith("aluno@example.test");
+    expect(db.auth.resetPasswordForEmail).toHaveBeenCalledWith("aluno@example.test", {
+      redirectTo: authRedirectUrl(),
+    });
   });
   it("mantém a recusa bloqueada e não envia e-mail de acesso", async () => {
     const write = query({ data: { id: uid }, error: null });
