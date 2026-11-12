@@ -52,20 +52,20 @@ jobs:
               await page.screenshot({path:`qa-reports/${name}-admin.png`,fullPage:true});
               await page.getByRole('button',{name:'Novo plano / renovação',exact:true}).click();
               await page.getByLabel('Valor total cobrado (R$)',{exact:true}).fill('5000');
-              await page.getByLabel('Forma de pagamento',{exact:true}).selectOption('installments');
+              await page.getByRole('combobox',{name:/Forma de pagamento/}).selectOption('installments');
               await page.getByLabel('Quantidade de parcelas',{exact:true}).fill('5');
               await page.screenshot({path:`qa-reports/${name}-plan-form.png`,fullPage:true});
               if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error(name+' form overflow');
               await page.goto('http://127.0.0.1:4179/qa-mentorship-view.html');
               await page.getByRole('button',{name:'Enviar comprovante',exact:true}).click();
-              await page.getByLabel('Comprovante (PDF, PNG ou JPG, até 10 MB)',{exact:true}).waitFor();
+              await page.getByLabel(/Comprovante \(PDF, PNG ou JPG/).waitFor();
               if(await page.getByRole('button',{name:'Aprovar comprovante',exact:true}).count())throw Error('Student has admin payment control');
               await page.screenshot({path:`qa-reports/${name}-student.png`,fullPage:true});
               if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error(name+' student overflow');
               results.push({viewport:name,adminPanel:true,planForm:true,studentPanel:true,privateUploadInput:true,noHorizontalOverflow:true});await page.close();
             }
             if(errors.length)throw Error(errors.join('\n'));
-          }finally{await writeFile('qa-reports/browser.json',JSON.stringify({results,errors,dataSource:'fictitious intercepted RPCs; no production reads or writes'},null,2));await browser.close();await server.close();}
+          }catch(error){errors.push(String(error));throw error;}finally{await writeFile('qa-reports/browser.json',JSON.stringify({results,errors,dataSource:'fictitious intercepted RPCs; no production reads or writes'},null,2));await browser.close();await server.close();}
           JS
       - uses: actions/upload-artifact@v4
         if: always()
