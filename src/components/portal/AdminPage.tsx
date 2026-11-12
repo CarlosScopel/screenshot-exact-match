@@ -749,8 +749,17 @@ function LessonMaterials({
   return (
     <div className="surface p-6 mt-6">
       <h3 className="font-semibold mb-4">Materiais complementares das aulas</h3>
+      {!lessonIds.length && (
+        <p className="text-sm text-muted-foreground mb-4">
+          Nenhuma aula cadastrada ainda. Crie uma aula acima (treinamento → módulo → aula) para
+          poder anexar materiais.
+        </p>
+      )}
       <form className="grid md:grid-cols-4 gap-3" onSubmit={add}>
-        <select name="lesson" className="portal-input" required>
+        <select name="lesson" className="portal-input" required defaultValue="">
+          <option value="" disabled>
+            {lessonIds.length ? "Selecione a aula" : "Nenhuma aula disponível"}
+          </option>
           {lessonIds.map((l) => (
             <option key={l.id} value={l.id}>
               {l.title}
