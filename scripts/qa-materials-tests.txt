@@ -125,7 +125,7 @@ describe("Materiais complementares no módulo selecionado", () => {
     openMaterials();
     fireEvent.change(screen.getByLabelText("Aula do material"), { target: { value: "demo-lesson-2" } });
     fireEvent.change(screen.getByPlaceholderText("Título do material"), { target: { value: "Outro módulo" } });
-    fireEvent.click(screen.getByRole("button", { name: "Módulos", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Módulos" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Abrir" })[1]!);
     expect(screen.getByLabelText("Aula do material")).toHaveValue("demo-lesson-3");
     expect(screen.getByPlaceholderText("Título do material")).toHaveValue("");
