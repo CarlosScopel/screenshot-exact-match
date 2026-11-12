@@ -1,0 +1,117 @@
+name: Verify isolated mentee tabs
+on:
+  push:
+    branches: ['qa/mentee-tabs-20261112']
+    paths: ['.github/workflows/qa-mentee-tabs-recheck.yml']
+permissions:
+  contents: write
+defaults:
+  run:
+    shell: bash
+jobs:
+  tabs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Apply inspected patch with corrected test selector
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import textwrap,subprocess
+          workflow=Path('.github/workflows/qa-mentee-tabs.yml').read_text()
+          patch=workflow.split('      - name: Apply narrowly scoped management tab change\n        run: |\n',1)[1].split('\n      - name: TypeScript',1)[0]
+          patch=textwrap.dedent(patch).replace('getByRole("tab", { name, exact: true })','getByRole("tab", { name })')
+          subprocess.run(['bash','-euo','pipefail','-c',patch],check=True)
+          PY
+      - name: TypeScript
+        run: bunx tsc --noEmit 2>&1 | tee qa-reports/typescript.log
+      - name: All unit and component tests
+        run: bun run test --reporter=default --reporter=json --outputFile.json=qa-reports/vitest.json 2>&1 | tee qa-reports/tests.log
+      - name: Lint changed source and tests
+        run: bunx eslint src/components/portal/AdminPage.tsx src/test/mentee-detail.test.tsx 2>&1 | tee qa-reports/lint.log
+      - name: Production build
+        run: bun run build 2>&1 | tee qa-reports/build.log
+      - name: Isolated browser tooling
+        run: |
+          npm install --prefix "$RUNNER_TEMP/browser" --no-save --package-lock=false playwright
+          node "$RUNNER_TEMP/browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Check actual panels on desktop and mobile with fictitious accounts
+        run: |
+          export PLAYWRIGHT_PATH="$RUNNER_TEMP/browser/node_modules/playwright/index.mjs"
+          node --input-type=module <<'JS'
+          import {writeFile} from 'node:fs/promises';
+          import {pathToFileURL} from 'node:url';
+          import path from 'node:path';
+          import {createServer} from 'vite';
+          import react from '@vitejs/plugin-react';
+          import tailwind from '@tailwindcss/vite';
+          const {chromium}=await import(pathToFileURL(process.env.PLAYWRIGHT_PATH).href);
+          await writeFile('qa-tabs.html','<html lang="pt-BR"><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="root"></div><script type="module" src="/qa-tabs.tsx"></script></body></html>');
+          await writeFile('qa-stub-admin.ts',`export const inviteMentee=async()=>{throw Error('No QA writes')};export const resendInvite=inviteMentee;export const deleteMentee=inviteMentee;export const reviewMentee=inviteMentee;`);
+          await writeFile('qa-stub-client.ts',`export const supabase={rpc:async(name:string,args:Record<string,string>)=>{if(name==='recordings_list')return {data:[],error:null};if(name==='mentorship_account')return {data:{user_id:args.p_user_id,server_now:new Date().toISOString(),status:'active',has_access:true,legacy_expires_at:null,plans:[],installments:[],receipts:[]},error:null};throw Error('Unexpected operation '+name);},from:()=>{throw Error('No QA writes');}};`);
+          await writeFile('qa-tabs.tsx',`import {createRoot} from 'react-dom/client';import {AdminPage} from './src/components/portal/AdminPage';import {createDemoPortalData} from './src/lib/demo';import './src/styles.css';const data=createDemoPortalData();data.profiles=['Ana','Bruno'].map((name,i)=>({id:'00000000-0000-4000-8000-00000000000'+(i+1),full_name:name+' Teste',email:name.toLowerCase()+'@example.invalid',status:'active',admin_notes:null,access_expires_at:null,last_seen_at:null,avatar_url:null,created_at:'2026-11-12T00:00:00Z'}));createRoot(document.getElementById('root')!).render(<main className="min-h-screen p-4 sm:p-8 max-w-6xl mx-auto"><AdminPage page="mentees" data={data} reload={async()=>{}} go={()=>{}} settings={null} refreshSettings={async()=>{}}/></main>);`);
+          const server=await createServer({configFile:false,root:process.cwd(),plugins:[react(),tailwind()],resolve:{alias:[{find:'@/lib/admin.functions',replacement:path.resolve('qa-stub-admin.ts')},{find:'@/integrations/supabase/client',replacement:path.resolve('qa-stub-client.ts')},{find:'@',replacement:path.resolve('src')}]},server:{host:'127.0.0.1',port:4179}});await server.listen();
+          const browser=await chromium.launch({headless:true});const results=[],errors=[];
+          const check=(ok,message)=>{if(!ok)throw Error(message);};
+          try{
+            for(const [viewport,width,height] of [['desktop',1440,1080],['mobile',390,844]]){
+              const page=await browser.newPage({viewport:{width,height}});page.on('pageerror',e=>errors.push(String(e)));
+              await page.route('**/*',route=>new URL(route.request().url()).hostname==='127.0.0.1'?route.continue():route.abort());
+              await page.goto('http://127.0.0.1:4179/qa-tabs.html');
+              const open=async(email)=>page.getByRole('row').filter({hasText:email}).getByRole('button',{name:'Gerenciar',exact:true}).click();
+              const learning=()=>page.getByRole('tab',{name:'Aulas e gravações',exact:true});
+              const billing=()=>page.getByRole('tab',{name:'Plano e pagamentos',exact:true});
+              await open('ana@example.invalid');
+              await page.getByRole('heading',{name:'Gravações exclusivas',exact:true}).waitFor();
+              check(await learning().getAttribute('aria-selected')==='true','Learning not default');
+              check(!await page.getByRole('heading',{name:'Plano e pagamentos',exact:true}).isVisible(),'Payment visible in lessons');
+              check(!await page.getByRole('table').isVisible(),'General table present in detail');
+              await page.getByLabel('Título da gravação',{exact:true}).fill('Call semanal em preparação');
+              await page.getByLabel('Título da gravação',{exact:true}).evaluate(el=>el.dataset.qaPersistent='yes');
+              await page.screenshot({path:`qa-reports/${viewport}-aulas.png`,fullPage:true});
+              await billing().click();
+              await page.getByRole('heading',{name:'Plano e pagamentos',exact:true}).waitFor();
+              check(!await page.getByRole('heading',{name:'Gravações exclusivas',exact:true}).isVisible(),'Lessons visible in payments');
+              check(!await page.getByRole('heading',{name:'Acesso individual aos treinamentos',exact:true}).isVisible(),'Training access visible in payments');
+              await page.getByRole('button',{name:'Cadastrar plano',exact:true}).click();
+              await page.getByLabel('Valor total cobrado (R$)',{exact:true}).fill('5000');
+              await page.screenshot({path:`qa-reports/${viewport}-pagamentos.png`,fullPage:true});
+              check(!await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),'Payment layout overflow');
+              await learning().click();
+              check(await page.getByLabel('Título da gravação',{exact:true}).inputValue()==='Call semanal em preparação','Recording form lost');
+              check(await page.getByLabel('Título da gravação',{exact:true}).getAttribute('data-qa-persistent')==='yes','Recording component remounted');
+              check(!await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),'Lesson layout overflow');
+              await billing().click();
+              check(await page.getByLabel('Valor total cobrado (R$)',{exact:true}).inputValue()==='5000','Plan form lost');
+              await page.getByRole('button',{name:'Voltar aos mentorados',exact:true}).click();
+              await open('bruno@example.invalid');
+              check(await learning().getAttribute('aria-selected')==='true','Another mentee inherited tab');
+              check(await page.getByLabel('Título da gravação',{exact:true}).inputValue()==='','Another mentee inherited draft');
+              results.push({viewport,learningSeparated:true,paymentsSeparated:true,draftsPreserved:true,noRemount:true,otherMenteeIsolated:true,noOverflow:true});
+              await page.close();
+            }
+            check(errors.length===0,errors.join('\n'));
+          }finally{await writeFile('qa-reports/browser.json',JSON.stringify({results,errors,backend:'local fictitious read-only stubs; no production records accessed'},null,2));await browser.close();await server.close();}
+          JS
+      - name: Preserve exact tested application files on QA branch only
+        run: |
+          test "$GITHUB_REF_NAME" = 'qa/mentee-tabs-20261112'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/components/portal/AdminPage.tsx src/test/mentee-detail.test.tsx
+          git commit -m 'fix: separar aulas e pagamentos na gestao individual [skip ci]'
+          git push origin HEAD:refs/heads/qa/mentee-tabs-20261112
+          git rev-parse HEAD > qa-reports/tested-commit.txt
+          git ls-tree HEAD src/components/portal/AdminPage.tsx src/test/mentee-detail.test.tsx > qa-reports/tested-files.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mentee-tabs-evidence
+          path: qa-reports/
+          retention-days: 7
