@@ -61,13 +61,13 @@ afterEach(() => {
 });
 async function watch(admin = false) {
   render(<RecordingsPanel userId={uid} admin={admin} />);
-  fireEvent.click(await screen.findByRole("button", { name: "Assistir gravação" }));
+  if (admin) fireEvent.click(await screen.findByRole("button", { name: "Assistir gravação" }));
   await screen.findByLabelText(`Gravação: ${record.title}`);
 }
 describe("Espaço exclusivo de calls", () => {
   it("mostra somente a lista do destinatário solicitado", async () => {
     render(<RecordingsPanel userId={uid} />);
-    await screen.findByText("Call semanal 1");
+    await screen.findByRole("button", { name: /Assistir encontro 01:/ });
     expect(mocks.list).toHaveBeenCalledWith(uid);
     expect(
       screen.queryByRole("form", { name: "Enviar gravação exclusiva" }),
@@ -112,7 +112,7 @@ describe("Espaço exclusivo de calls", () => {
   });
   it("permite alterar velocidade", async () => {
     await watch();
-    fireEvent.change(screen.getByLabelText("Velocidade"), { target: { value: "1.5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Velocidade 1.5×" }));
     expect(
       (screen.getByLabelText(`Gravação: ${record.title}`) as HTMLVideoElement).playbackRate,
     ).toBe(1.5);
@@ -140,7 +140,7 @@ describe("Espaço exclusivo de calls", () => {
     ]);
     vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<RecordingsPanel userId={uid} />);
-    const buttons = await screen.findAllByRole("button", { name: "Assistir gravação" });
+    const buttons = await screen.findAllByRole("button", { name: /Assistir encontro/ });
     fireEvent.click(buttons[0]!);
     await screen.findByLabelText("Minhas anotações privadas");
     fireEvent.change(screen.getByLabelText("Minhas anotações privadas"), {
@@ -183,5 +183,150 @@ describe("Espaço exclusivo de calls", () => {
     expect(mocks.publish).not.toHaveBeenCalled();
     expect(mocks.clear).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Retomar envio" })).toBeEnabled();
+  });
+});
+
+describe("Experiência organizada do mentorado", () => {
+  const second = {
+    ...record,
+    id: "00000000-0000-4000-8000-000000000102",
+    title: "Revisão da estratégia",
+    recorded_on: "2026-11-19",
+  };
+  const third = {
+    ...record,
+    id: "00000000-0000-4000-8000-000000000103",
+    title: "Plano de execução",
+    recorded_on: "2026-11-26",
+  };
+  async function journey() {
+    mocks.list.mockResolvedValue([third, record, second]);
+    render(<RecordingsPanel userId={uid} />);
+    await screen.findByLabelText(`Gravação: ${record.title}`);
+  }
+  it("ordena encontros por data e abre o primeiro sem reprodução automática", async () => {
+    await journey();
+    const items = screen.getAllByRole("button", { name: /Assistir encontro/ });
+    expect(items.map((item) => item.getAttribute("aria-label"))).toEqual([
+      `Assistir encontro 01: ${record.title}`,
+      `Assistir encontro 02: ${second.title}`,
+      `Assistir encontro 03: ${third.title}`,
+    ]);
+    expect(items[0]).toHaveAttribute("aria-current", "true");
+    expect(screen.getByLabelText(`Gravação: ${record.title}`)).not.toHaveAttribute("autoplay");
+    expect(screen.getByRole("button", { name: "Encontro anterior" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Próximo encontro" })).toBeEnabled();
+  });
+  it("navega para a próxima call e volta pela sequência sem sair da página", async () => {
+    await journey();
+    fireEvent.click(screen.getByRole("button", { name: "Próximo encontro" }));
+    await screen.findByLabelText(`Gravação: ${second.title}`);
+    expect(
+      screen.getByRole("button", { name: `Assistir encontro 02: ${second.title}` }),
+    ).toHaveAttribute("aria-current", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Encontro anterior" }));
+    await screen.findByLabelText(`Gravação: ${record.title}`);
+    expect(mocks.list).toHaveBeenCalledTimes(1);
+  });
+  it("desabilita avançar no último encontro", async () => {
+    await journey();
+    fireEvent.click(screen.getByRole("button", { name: `Assistir encontro 03: ${third.title}` }));
+    await screen.findByLabelText(`Gravação: ${third.title}`);
+    expect(screen.getByRole("button", { name: "Próximo encontro" })).toBeDisabled();
+    expect(screen.getByText("3 de 3 encontros")).toBeInTheDocument();
+  });
+  it("não mostra gravações incompletas nem de outro mentorado", async () => {
+    mocks.list.mockResolvedValue([
+      record,
+      { ...second, status: "uploading" },
+      { ...third, user_id: "another-user" },
+    ]);
+    render(<RecordingsPanel userId={uid} />);
+    await screen.findByLabelText(`Gravação: ${record.title}`);
+    expect(screen.getAllByRole("button", { name: /Assistir encontro/ })).toHaveLength(1);
+    expect(screen.queryByText(second.title)).not.toBeInTheDocument();
+    expect(screen.queryByText(third.title)).not.toBeInTheDocument();
+    expect(mocks.playback).toHaveBeenCalledTimes(1);
+  });
+  it("usa botões acessíveis de velocidade em vez do seletor nativo", async () => {
+    await watch();
+    expect(screen.getByRole("group", { name: "Velocidade de reprodução" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    const player = screen.getByLabelText(`Gravação: ${record.title}`) as HTMLVideoElement;
+    for (const rate of [0.75, 1, 1.25, 1.5, 2]) {
+      fireEvent.click(screen.getByRole("button", { name: `Velocidade ${rate}×` }));
+      expect(player.playbackRate).toBe(rate);
+      expect(screen.getByRole("button", { name: `Velocidade ${rate}×` })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+    }
+  });
+  it("mantém a velocidade escolhida ao abrir o próximo encontro", async () => {
+    await journey();
+    fireEvent.click(screen.getByRole("button", { name: "Velocidade 1.5×" }));
+    fireEvent.click(screen.getByRole("button", { name: "Próximo encontro" }));
+    const player = await screen.findByLabelText(`Gravação: ${second.title}`);
+    fireEvent.loadedMetadata(player);
+    expect((player as HTMLVideoElement).playbackRate).toBe(1.5);
+    expect(screen.getByRole("button", { name: "Velocidade 1.5×" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+  it("mantém a anotação e o encontro atual quando a troca é cancelada", async () => {
+    await journey();
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    fireEvent.change(screen.getByLabelText("Minhas anotações privadas"), {
+      target: { value: "Decisão importante" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Próximo encontro" }));
+    expect(screen.getByLabelText(`Gravação: ${record.title}`)).toBeInTheDocument();
+    expect(screen.getByLabelText("Minhas anotações privadas")).toHaveValue("Decisão importante");
+    expect(mocks.learning).toHaveBeenCalledTimes(1);
+  });
+  it("troca apenas após confirmar descarte e busca a anotação do encontro correto", async () => {
+    await journey();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    fireEvent.change(screen.getByLabelText("Minhas anotações privadas"), {
+      target: { value: "Rascunho da primeira" },
+    });
+    mocks.learning.mockResolvedValue({
+      content: "Anotação da segunda",
+      revision: 1,
+      position_seconds: 0,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Próximo encontro" }));
+    await screen.findByLabelText(`Gravação: ${second.title}`);
+    expect(screen.getByLabelText("Minhas anotações privadas")).toHaveValue("Anotação da segunda");
+    expect(mocks.learning).toHaveBeenLastCalledWith(second.id);
+  });
+  it("não pede descarte ao selecionar novamente a mesma call", async () => {
+    await journey();
+    const confirm = vi.spyOn(window, "confirm");
+    fireEvent.change(screen.getByLabelText("Minhas anotações privadas"), {
+      target: { value: "Ainda editando" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: `Assistir encontro 01: ${record.title}` }));
+    expect(confirm).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Minhas anotações privadas")).toHaveValue("Ainda editando");
+  });
+  it("mostra um estado vazio sem controles de reprodução", async () => {
+    mocks.list.mockResolvedValue([]);
+    render(<RecordingsPanel userId={uid} />);
+    await screen.findByText("Sua jornada começa aqui");
+    expect(
+      screen.queryByRole("group", { name: "Velocidade de reprodução" }),
+    ).not.toBeInTheDocument();
+    expect(mocks.playback).not.toHaveBeenCalled();
+  });
+  it("oculta dados anteriores ao trocar o usuário destinatário", async () => {
+    const { rerender } = render(<RecordingsPanel userId={uid} />);
+    await screen.findByLabelText(`Gravação: ${record.title}`);
+    mocks.list.mockResolvedValue([]);
+    rerender(<RecordingsPanel userId="other-user" />);
+    await screen.findByText("Sua jornada começa aqui");
+    expect(screen.queryByLabelText(`Gravação: ${record.title}`)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Minhas anotações privadas")).not.toBeInTheDocument();
   });
 });
