@@ -1098,78 +1098,102 @@ function Mentees({ data, reload }: { data: PortalData; reload: () => Promise<voi
   return (
     <div>
       <Heading
-        title="Mentorados"
-        subtitle="Analise novos cadastros e controle quem pode acessar a plataforma."
+        title={selected ? "Gerenciar mentorado" : "Mentorados"}
+        subtitle={
+          selected
+            ? selected.email
+            : "Analise novos cadastros e controle quem pode acessar a plataforma."
+        }
       />
-      <section className="surface p-5 mb-6" aria-label="Solicitações aguardando aprovação">
-        <div className="flex items-center justify-between mb-4 gap-3">
-          <h2 className="text-lg font-semibold">Aguardando aprovação</h2>
-          <span className="rounded-full bg-primary/10 text-primary text-xs font-semibold px-3 py-1">
-            {pending.length} pendente(s)
-          </span>
-        </div>
-        {pending.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Não existem solicitações aguardando sua análise.
-          </p>
-        ) : (
-          <div className="space-y-3">
-            {pending.map((p) => (
-              <div
-                key={p.id}
-                className="flex flex-wrap items-center justify-between gap-3 border rounded-xl p-4"
-              >
-                <div className="min-w-0">
-                  <p className="font-semibold text-sm">{p.full_name || "Sem nome"}</p>
-                  <p className="text-xs text-muted-foreground break-all">
-                    {p.email} · {formatDate(p.created_at)}
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    className="portal-button"
-                    onClick={() => void review(p.id, "approve")}
+      {!selected && (
+        <>
+          <section className="surface p-5 mb-6" aria-label="Solicitações aguardando aprovação">
+            <div className="flex items-center justify-between mb-4 gap-3">
+              <h2 className="text-lg font-semibold">Aguardando aprovação</h2>
+              <span className="rounded-full bg-primary/10 text-primary text-xs font-semibold px-3 py-1">
+                {pending.length} pendente(s)
+              </span>
+            </div>
+            {pending.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Não existem solicitações aguardando sua análise.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {pending.map((p) => (
+                  <div
+                    key={p.id}
+                    className="flex flex-wrap items-center justify-between gap-3 border rounded-xl p-4"
                   >
-                    Aprovar
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    className="portal-outline text-destructive"
-                    onClick={() => void review(p.id, "reject")}
-                  >
-                    Recusar
-                  </button>
-                </div>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-sm">{p.full_name || "Sem nome"}</p>
+                      <p className="text-xs text-muted-foreground break-all">
+                        {p.email} · {formatDate(p.created_at)}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        className="portal-button"
+                        onClick={() => void review(p.id, "approve")}
+                      >
+                        Aprovar
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        className="portal-outline text-destructive"
+                        onClick={() => void review(p.id, "reject")}
+                      >
+                        Recusar
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
-      </section>
-      <form onSubmit={invite} className="surface p-5 grid md:grid-cols-3 gap-3">
-        <input
-          className="portal-input"
-          placeholder="Nome do mentorado"
-          name="name"
-          required
-          minLength={2}
-        />
-        <input className="portal-input" placeholder="E-mail" name="email" type="email" required />
-        <button disabled={busy} className="portal-button">
-          <Plus className="size-4" />
-          Enviar convite
-        </button>
-      </form>
+            )}
+          </section>
+          <form onSubmit={invite} className="surface p-5 grid md:grid-cols-3 gap-3">
+            <input
+              className="portal-input"
+              placeholder="Nome do mentorado"
+              name="name"
+              required
+              minLength={2}
+            />
+            <input
+              className="portal-input"
+              placeholder="E-mail"
+              name="email"
+              type="email"
+              required
+            />
+            <button disabled={busy} className="portal-button">
+              <Plus className="size-4" />
+              Enviar convite
+            </button>
+          </form>
+        </>
+      )}
       <Notice text={message} />
       {selected && (
         <div className="surface p-6 my-5">
-          <div className="flex justify-between mb-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
             <h2 className="font-semibold">
               Gerenciar {selected["full_name"] || selected["email"]}
             </h2>
-            <button onClick={() => setSelected(null)}>Fechar</button>
+            <button
+              type="button"
+              className="portal-outline"
+              onClick={() => {
+                setSelected(null);
+                setMessage("");
+              }}
+            >
+              <ArrowLeft className="size-4" />
+              Voltar aos mentorados
+            </button>
           </div>
           <form onSubmit={saveProfile} className="grid md:grid-cols-3 gap-3">
             <input
@@ -1260,47 +1284,55 @@ function Mentees({ data, reload }: { data: PortalData; reload: () => Promise<voi
           </div>
         </div>
       )}
-      <div className="surface overflow-x-auto mt-5">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-muted/50 text-muted-foreground">
-            <tr>
-              <th className="p-4">Nome</th>
-              <th className="p-4">E-mail</th>
-              <th className="p-4">Status</th>
-              <th className="p-4">Cadastro</th>
-              <th className="p-4">Ação</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.profiles.map((p) => (
-              <tr className="border-t" key={p.id}>
-                <td className="p-4">{p.full_name || "—"}</td>
-                <td className="p-4">{p.email}</td>
-                <td className="p-4">
-                  {approvalState(p) === "pending"
-                    ? "Aguardando aprovação"
-                    : approvalState(p) === "rejected"
-                      ? "Recusado"
-                      : p.status === "active"
-                        ? p.access_expires_at && Date.parse(p.access_expires_at) <= Date.now()
-                          ? "Prazo encerrado"
-                          : "Ativo"
-                        : "Suspenso"}
-                </td>
-                <td className="p-4">{formatDate(p.created_at)}</td>
-                <td className="p-4">
-                  <button className="text-primary" onClick={() => setSelected(p)}>
-                    Gerenciar
-                  </button>
-                </td>
+      {!selected && (
+        <div className="surface overflow-x-auto mt-5">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-muted/50 text-muted-foreground">
+              <tr>
+                <th className="p-4">Nome</th>
+                <th className="p-4">E-mail</th>
+                <th className="p-4">Status</th>
+                <th className="p-4">Cadastro</th>
+                <th className="p-4">Ação</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-        {!data.profiles.length && (
-          <p className="p-8 text-muted-foreground text-center">Nenhum usuário cadastrado.</p>
-        )}
-      </div>
+            </thead>
+            <tbody>
+              {data.profiles.map((p) => (
+                <tr className="border-t" key={p.id}>
+                  <td className="p-4">{p.full_name || "—"}</td>
+                  <td className="p-4">{p.email}</td>
+                  <td className="p-4">
+                    {approvalState(p) === "pending"
+                      ? "Aguardando aprovação"
+                      : approvalState(p) === "rejected"
+                        ? "Recusado"
+                        : p.status === "active"
+                          ? p.access_expires_at && Date.parse(p.access_expires_at) <= Date.now()
+                            ? "Prazo encerrado"
+                            : "Ativo"
+                          : "Suspenso"}
+                  </td>
+                  <td className="p-4">{formatDate(p.created_at)}</td>
+                  <td className="p-4">
+                    <button
+                      className="text-primary"
+                      onClick={() => {
+                        setMessage("");
+                        setSelected(p);
+                      }}
+                    >
+                      Gerenciar
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!data.profiles.length && (
+            <p className="p-8 text-muted-foreground text-center">Nenhum usuário cadastrado.</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
