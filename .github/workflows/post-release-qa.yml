@@ -1,0 +1,91 @@
+name: Confirm published launch corrections
+on:
+  push:
+    branches: ['qa/ordem-release-check-20261111']
+    paths: ['.github/workflows/post-release-qa.yml']
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  published:
+    if: github.ref == 'refs/heads/qa/ordem-release-check-20261111'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      QA_BASE_URL: https://pixel-perfect-replay-54723.lovable.app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Isolated browser tooling
+        run: |
+          npm install --prefix "$RUNNER_TEMP/portal-browser" --no-save --package-lock=false playwright
+          node "$RUNNER_TEMP/portal-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Confirm corrected authentication callback code is served publicly
+        run: |
+          PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/portal-browser/node_modules/playwright/index.mjs" node --input-type=module <<'JS'
+          import { pathToFileURL } from 'node:url';
+          import { writeFile, mkdir } from 'node:fs/promises';
+          import { createHash } from 'node:crypto';
+          const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE_PATH).href);
+          await mkdir('qa-reports', { recursive: true });
+          const browser = await chromium.launch({headless:true});
+          const report = { target:process.env.QA_BASE_URL, inspected_revision:'49934fc5bb17269eee27327f6445f601d4ff7ca3', authCallbackFixPresent:false, checked_at:new Date().toISOString(), assets:[] };
+          try {
+            const page = await browser.newPage();
+            await page.goto(process.env.QA_BASE_URL, {waitUntil:'networkidle',timeout:60000});
+            await page.getByRole('button',{name:'Entrar na plataforma',exact:true}).waitFor({timeout:30000});
+            const scripts = await page.evaluate(() => [...new Set([...document.querySelectorAll('script[src],link[rel="modulepreload"]')].map(el => el.src || el.href).concat(performance.getEntriesByType('resource').map(entry => entry.name).filter(url => /\.js(?:\?|$)/.test(url))))]);
+            for (const url of scripts) {
+              const parsed = new URL(url);
+              if (parsed.origin !== new URL(process.env.QA_BASE_URL).origin) continue;
+              const response = await page.request.get(url);
+              if (!response.ok()) continue;
+              const text = await response.text();
+              const containsCallbackFix = text.includes('https://pixel-perfect-replay-54723.lovable.app') && text.includes('https://id-preview--fe5f8730-9053-4efb-acbc-09b0dca41d85.lovable.app') && /searchParams\.set\(["']type["']/.test(text);
+              report.assets.push({path:parsed.pathname,sha256:createHash('sha256').update(text).digest('hex'),containsCallbackFix});
+              report.authCallbackFixPresent ||= containsCallbackFix;
+            }
+            if (!report.authCallbackFixPresent) throw new Error('The corrected callback code was not found in the published assets. Publication is not confirmed.');
+          } catch (error) { report.error=String(error); process.exitCode=1; }
+          finally { await writeFile('qa-reports/published-version.json',JSON.stringify(report,null,2)); await browser.close(); }
+          JS
+      - name: Desktop and mobile public demonstration without production data changes
+        run: |
+          PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/portal-browser/node_modules/playwright/index.mjs" node --env-file=.env scripts/validate-browser.mjs
+      - name: Send the owner a verification link once through the normal public form
+        if: github.run_attempt == 1 && github.run_number == 1
+        run: |
+          PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/portal-browser/node_modules/playwright/index.mjs" node --input-type=module <<'JS'
+          import { pathToFileURL } from 'node:url';
+          import { writeFile } from 'node:fs/promises';
+          const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE_PATH).href);
+          const browser = await chromium.launch({headless:true});
+          const report = { target:process.env.QA_BASE_URL, submitted:false, accepted:false, mailbox_delivery:'not_verified', owner_session_created:false, role_granted_by_test:false };
+          try {
+            const page = await browser.newPage();
+            page.setDefaultTimeout(30000);
+            await page.goto(process.env.QA_BASE_URL,{waitUntil:'domcontentloaded'});
+            await page.getByRole('button',{name:'Ativar acesso de administrador',exact:true}).click();
+            await page.getByLabel('Seu nome',{exact:true}).fill('Carlos Scopel');
+            await page.getByLabel('E-mail',{exact:true}).fill('dudu.escopelcarlos253@gmail.com');
+            await page.getByRole('button',{name:'Enviar link de administrador',exact:true}).click();
+            report.submitted=true;
+            const status = page.getByRole('status');
+            await status.waitFor();
+            report.feedback=await status.innerText();
+            report.accepted=report.feedback.includes('Link enviado ao e-mail autorizado');
+            if (!report.accepted) throw new Error(report.feedback);
+          } catch(error) { report.error=String(error); process.exitCode=1; }
+          finally { await writeFile('qa-reports/owner-email-request.json',JSON.stringify(report,null,2)); await browser.close(); }
+          JS
+      - name: Preserve public validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-release-evidence
+          path: qa-reports/
+          retention-days: 7
