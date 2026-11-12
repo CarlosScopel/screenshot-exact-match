@@ -24,6 +24,7 @@ import {
   X,
   Sun,
   Moon,
+  Video,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { AuthProvider, isMemberBlocked, useAuth } from "@/lib/auth";
@@ -35,6 +36,7 @@ import { AccessScreen } from "./AccessScreen";
 import { AdminPage } from "./AdminPage";
 import { LessonFiles } from "./LessonFiles";
 import { MentorshipPanel } from "./MentorshipPanel";
+import { RecordingsPanel } from "./RecordingsPanel";
 import { accountCanAccess } from "@/lib/mentorship";
 import { useMentorshipAccount } from "@/lib/use-mentorship";
 import { inviteMentee } from "@/lib/admin.functions";
@@ -60,6 +62,7 @@ type View =
   | "announcements"
   | "profile"
   | "billing"
+  | "recordings"
   | "admin"
   | "manage-trainings"
   | "manage-library"
@@ -72,6 +75,7 @@ type FormValue = Record<string, string | boolean>;
 const navStudent: { id: View; name: string; icon: typeof BookOpen }[] = [
   { id: "home", name: "Início", icon: LayoutDashboard },
   { id: "trainings", name: "Treinamentos", icon: GraduationCap },
+  { id: "recordings", name: "Minhas gravações", icon: Video },
   { id: "library", name: "Biblioteca", icon: Library },
   { id: "tools", name: "Ferramentas", icon: Wrench },
   { id: "announcements", name: "Comunicados", icon: Megaphone },
@@ -552,6 +556,15 @@ function MemberPage({
   const available = data.trainings.filter((t) => isAdmin || t.status === "published");
   const lessons = data.lessons.filter((l) => isAdmin || l.status === "published");
   const completed = data.progress.filter((p) => p.completed).length;
+  if (page === "recordings")
+    return demo ? (
+      <Empty
+        title="Minhas gravações"
+        description="As calls são privadas e aparecem somente na conta autenticada de cada mentorado."
+      />
+    ) : (
+      <RecordingsPanel key={userId} userId={userId} />
+    );
   if (page === "billing")
     return demo ? (
       <Empty
