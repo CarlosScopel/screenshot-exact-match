@@ -1,0 +1,67 @@
+name: Private recordings published verification
+on:
+  push:
+    branches: ['qa/private-recordings-20261112']
+    paths: ['.github/workflows/recordings-published.yml']
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  published:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Isolated browser tooling
+        run: |
+          npm install --prefix "$RUNNER_TEMP/browser" --no-save --package-lock=false playwright
+          node "$RUNNER_TEMP/browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Verify published components and demo navigation without private user records
+        run: |
+          mkdir -p qa-reports
+          export PLAYWRIGHT_PATH="$RUNNER_TEMP/browser/node_modules/playwright/index.mjs"
+          node --input-type=module <<'JS'
+          import {writeFile} from 'node:fs/promises';
+          import {pathToFileURL} from 'node:url';
+          const {chromium}=await import(pathToFileURL(process.env.PLAYWRIGHT_PATH).href);
+          const browser=await chromium.launch({headless:true});
+          const report={origin:'https://pixel-perfect-replay-54723.lovable.app',expectedSource:'83d01787cd34116d61f1311a7711ea91c38cca37',checks:{},errors:[]};
+          try{
+            let confirmed=false;
+            for(let attempt=0;attempt<10&&!confirmed;attempt++){
+              const page=await browser.newPage({viewport:{width:1365,height:900}});
+              const scripts=[];const pending=[];
+              page.on('pageerror',error=>report.errors.push(String(error)));
+              page.on('response',response=>{if(response.request().resourceType()==='script')pending.push(response.text().then(text=>scripts.push(text)).catch(()=>{}));});
+              await page.goto(report.origin+'/?verify=private-recordings-'+Date.now(),{waitUntil:'networkidle'});
+              await page.getByRole('button',{name:'Preencher login de teste',exact:true}).click();
+              await page.getByRole('button',{name:'Entrar na plataforma',exact:true}).click();
+              const menu=page.getByRole('button',{name:'Minhas gravações',exact:true});
+              if(await menu.count()){
+                await menu.click();
+                await page.getByText('As calls são privadas e aparecem somente na conta autenticada de cada mentorado.',{exact:true}).waitFor();
+                await Promise.all(pending);
+                const combined=scripts.join('\n');
+                const required=['recordings_list','recordings_create','recordings_publish','recordings_save_note','recordings_save_position','mentorship-recordings','upload/resumable','Minhas gravações'];
+                for(const token of required)report.checks[token]=combined.includes(token);
+                report.checks.demoDoesNotShowPrivateRecordings=await page.getByRole('button',{name:'Assistir gravação',exact:true}).count()===0;
+                confirmed=Object.values(report.checks).every(Boolean);
+                if(confirmed)await page.screenshot({path:'qa-reports/published-demo-recordings.png',fullPage:true});
+              }
+              await page.close();
+              if(!confirmed)await new Promise(resolve=>setTimeout(resolve,10000));
+            }
+            if(!confirmed)throw Error('The corrected recordings components are not yet confirmed on the public deployment');
+            if(report.errors.length)throw Error(report.errors.join('\n'));
+          }finally{await writeFile('qa-reports/published.json',JSON.stringify(report,null,2));await browser.close();}
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recordings-published-evidence
+          path: qa-reports/
+          retention-days: 7
