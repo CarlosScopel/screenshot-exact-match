@@ -17,11 +17,18 @@ vi.mock("@/lib/media", () => ({ uploadMaterial: vi.fn(), uploadMedia: vi.fn() })
 vi.mock("@/components/portal/MentorshipPanel", () => ({
   MentorshipPanel: ({ userId }: { userId: string }) => (
     <section aria-label="Plano e pagamentos" data-user-id={userId}>
-      Plano do mentorado selecionado
+      <p>Plano do mentorado selecionado</p>
+      <input aria-label="Valor do plano em edição" defaultValue="" />
     </section>
   ),
 }));
-vi.mock("@/components/portal/RecordingsPanel", () => ({ RecordingsPanel: () => null }));
+vi.mock("@/components/portal/RecordingsPanel", () => ({
+  RecordingsPanel: ({ userId }: { userId: string }) => (
+    <section aria-label="Gravações exclusivas" data-user-id={userId}>
+      <input aria-label="Título da gravação em edição" defaultValue="" />
+    </section>
+  ),
+}));
 const ids = [
   "00000000-0000-4000-8000-000000000001",
   "00000000-0000-4000-8000-000000000002",
@@ -78,7 +85,7 @@ function expectOnlySelected(id: string) {
   expect(screen.queryByRole("button", { name: "Enviar convite" })).not.toBeInTheDocument();
   expect(screen.queryByPlaceholderText("Nome do mentorado")).not.toBeInTheDocument();
   expect(screen.queryByRole("table")).not.toBeInTheDocument();
-  expect(screen.getByRole("region", { name: "Plano e pagamentos" })).toHaveAttribute(
+  expect(screen.getByText("Plano do mentorado selecionado").closest("section")).toHaveAttribute(
     "data-user-id",
     id,
   );
@@ -149,5 +156,109 @@ describe("Gestão individual de mentorados", () => {
       screen.queryByText("Acesso aprovado! O mentorado poderá entrar após criar sua senha."),
     ).not.toBeInTheDocument();
     expectOnlySelected(ids[0]);
+  });
+});
+
+function selectSection(name: string) {
+  fireEvent.keyDown(screen.getByRole("tab", { name }), { key: "Enter" });
+}
+
+describe("Separação de aulas e pagamentos do mentorado", () => {
+  it("abre aulas e gravações sem exibir informações financeiras", () => {
+    mount();
+    manage("ana@example.invalid");
+    expect(screen.getByRole("tab", { name: "Aulas e gravações" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByRole("tabpanel", { name: "Aulas e gravações" })).toBeVisible();
+    expect(screen.getByRole("region", { name: "Gravações exclusivas" })).toHaveAttribute(
+      "data-user-id",
+      ids[0],
+    );
+    expect(screen.getByText("Plano do mentorado selecionado")).not.toBeVisible();
+    expect(screen.queryByRole("tabpanel", { name: "Plano e pagamentos" })).not.toBeInTheDocument();
+  });
+  it("mostra somente os pagamentos ao selecionar a aba financeira", () => {
+    mount();
+    manage("ana@example.invalid");
+    selectSection("Plano e pagamentos");
+    expect(screen.getByRole("tab", { name: "Plano e pagamentos" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByRole("tabpanel", { name: "Plano e pagamentos" })).toBeVisible();
+    expect(screen.getByRole("region", { name: "Plano e pagamentos" })).toHaveAttribute(
+      "data-user-id",
+      ids[0],
+    );
+    expect(screen.getByLabelText("Título da gravação em edição")).not.toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "Acesso individual aos treinamentos" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Turmas" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(mock.from).not.toHaveBeenCalled();
+  });
+  it("mantém formulários e instâncias de upload ao alternar as abas", () => {
+    mount();
+    manage("ana@example.invalid");
+    const recordingInput = screen.getByLabelText("Título da gravação em edição");
+    fireEvent.change(recordingInput, { target: { value: "Call semanal em andamento" } });
+    selectSection("Plano e pagamentos");
+    const planInput = screen.getByLabelText("Valor do plano em edição");
+    fireEvent.change(planInput, { target: { value: "5000" } });
+    selectSection("Aulas e gravações");
+    expect(screen.getByLabelText("Título da gravação em edição")).toBe(recordingInput);
+    expect(recordingInput).toHaveValue("Call semanal em andamento");
+    expect(recordingInput).toBeVisible();
+    expect(planInput).not.toBeVisible();
+    selectSection("Plano e pagamentos");
+    expect(screen.getByLabelText("Valor do plano em edição")).toBe(planInput);
+    expect(planInput).toHaveValue("5000");
+    expect(planInput).toBeVisible();
+  });
+  it("reinicia a aba ao trocar de mentorado sem reaproveitar formulários", () => {
+    mount();
+    manage("ana@example.invalid");
+    selectSection("Plano e pagamentos");
+    fireEvent.change(screen.getByLabelText("Valor do plano em edição"), {
+      target: { value: "5000" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Voltar aos mentorados" }));
+    expectGeneralList();
+    manage("bruno@example.invalid");
+    expectOnlySelected(ids[1]);
+    expect(screen.getByRole("tab", { name: "Aulas e gravações" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByRole("region", { name: "Gravações exclusivas" })).toHaveAttribute(
+      "data-user-id",
+      ids[1],
+    );
+    selectSection("Plano e pagamentos");
+    expect(screen.getByLabelText("Valor do plano em edição")).toHaveValue("");
+    expect(screen.getByRole("region", { name: "Plano e pagamentos" })).toHaveAttribute(
+      "data-user-id",
+      ids[1],
+    );
+    expect(screen.queryByText("ana@example.invalid")).not.toBeInTheDocument();
+  });
+  it("mantém o perfil do mentorado editável na aba de pagamentos", async () => {
+    const props = mount();
+    manage("ana@example.invalid");
+    selectSection("Plano e pagamentos");
+    fireEvent.change(screen.getByDisplayValue("Ana Teste"), {
+      target: { value: "Ana Atualizada" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar mentorado" }));
+    await waitFor(() => expect(props.reload).toHaveBeenCalled());
+    expect(mock.eq).toHaveBeenCalledWith("id", ids[0]);
+    expect(screen.getByRole("tab", { name: "Plano e pagamentos" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByText("Plano do mentorado selecionado")).toBeVisible();
   });
 });
