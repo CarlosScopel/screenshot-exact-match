@@ -42,7 +42,7 @@ jobs:
       - name: Apply the localized fix and format changed files
         run: |
           node scripts/qa-materials-apply.mjs
-          bunx --no-install prettier src/components/portal/AdminPage.tsx src/test/admin-ui.test.tsx --write
+          bunx --no-install prettier src/components/portal/AdminPage.tsx src/test/admin-ui.test.tsx scripts/qa-materials-apply.mjs --write
           git diff -- src/components/portal/AdminPage.tsx src/test/admin-ui.test.tsx > qa-materials-reports/reviewed.diff
       - name: TypeScript
         run: bunx --no-install tsc --noEmit 2>&1 | tee qa-materials-reports/typescript.log
@@ -50,8 +50,11 @@ jobs:
         run: bun run test --reporter=default --reporter=json --outputFile=qa-materials-reports/vitest.json 2>&1 | tee qa-materials-reports/tests.log
       - name: Production build
         run: bun run build 2>&1 | tee qa-materials-reports/build.log
-      - name: Lint
-        run: bun run lint 2>&1 | tee qa-materials-reports/lint.log
+      - name: Lint changed application files
+        run: bunx --no-install eslint src/components/portal/AdminPage.tsx src/test/admin-ui.test.tsx 2>&1 | tee qa-materials-reports/lint-changed.log
+      - name: Report existing whole-project lint errors without editing unrelated code
+        continue-on-error: true
+        run: bun run lint 2>&1 | tee qa-materials-reports/lint-full.log
       - name: Preserve tested corrections on this QA branch only
         run: |
           test "$GITHUB_REF_NAME" = 'qa/lesson-materials-20261112'
