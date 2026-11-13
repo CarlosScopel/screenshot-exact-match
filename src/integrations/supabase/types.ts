@@ -350,6 +350,261 @@ export type Database = {
           },
         ]
       }
+      mentorship_installments: {
+        Row: {
+          amount_cents: number
+          confirmed_by: string | null
+          due_date: string
+          id: string
+          number: number
+          paid_at: string | null
+          paid_on: string | null
+          payment_note: string
+          plan_id: string
+        }
+        Insert: {
+          amount_cents: number
+          confirmed_by?: string | null
+          due_date: string
+          id?: string
+          number: number
+          paid_at?: string | null
+          paid_on?: string | null
+          payment_note?: string
+          plan_id: string
+        }
+        Update: {
+          amount_cents?: number
+          confirmed_by?: string | null
+          due_date?: string
+          id?: string
+          number?: number
+          paid_at?: string | null
+          paid_on?: string | null
+          payment_note?: string
+          plan_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mentorship_installments_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "mentorship_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mentorship_plans: {
+        Row: {
+          created_at: string
+          created_by: string
+          duration_count: number
+          duration_unit: string
+          end_date: string
+          ends_at: string
+          first_due_date: string
+          id: string
+          installment_count: number
+          revision: number
+          start_date: string
+          starts_at: string
+          total_cents: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          duration_count: number
+          duration_unit: string
+          end_date: string
+          ends_at: string
+          first_due_date: string
+          id: string
+          installment_count: number
+          revision?: number
+          start_date: string
+          starts_at: string
+          total_cents: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          duration_count?: number
+          duration_unit?: string
+          end_date?: string
+          ends_at?: string
+          first_due_date?: string
+          id?: string
+          installment_count?: number
+          revision?: number
+          start_date?: string
+          starts_at?: string
+          total_cents?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mentorship_plans_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mentorship_receipts: {
+        Row: {
+          created_at: string
+          file_name: string
+          file_path: string
+          id: string
+          installment_id: string
+          paid_on: string
+          review_note: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          file_name: string
+          file_path: string
+          id?: string
+          installment_id: string
+          paid_on: string
+          review_note?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          file_name?: string
+          file_path?: string
+          id?: string
+          installment_id?: string
+          paid_on?: string
+          review_note?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mentorship_receipts_installment_id_fkey"
+            columns: ["installment_id"]
+            isOneToOne: false
+            referencedRelation: "mentorship_installments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mentorship_receipts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mentorship_recording_learning: {
+        Row: {
+          content: string
+          position_seconds: number
+          recording_id: string
+          revision: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          content?: string
+          position_seconds?: number
+          recording_id: string
+          revision?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          position_seconds?: number
+          recording_id?: string
+          revision?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mentorship_recording_learning_recording_id_fkey"
+            columns: ["recording_id"]
+            isOneToOne: true
+            referencedRelation: "mentorship_recordings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mentorship_recording_learning_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mentorship_recordings: {
+        Row: {
+          created_at: string
+          description: string
+          file_name: string
+          file_path: string
+          id: string
+          mime_type: string
+          recorded_on: string
+          size_bytes: number
+          status: string
+          title: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string
+          file_name: string
+          file_path: string
+          id?: string
+          mime_type: string
+          recorded_on: string
+          size_bytes: number
+          status?: string
+          title: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          file_name?: string
+          file_path?: string
+          id?: string
+          mime_type?: string
+          recorded_on?: string
+          size_bytes?: number
+          status?: string
+          title?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mentorship_recordings_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       modules: {
         Row: {
           created_at: string
@@ -662,6 +917,68 @@ export type Database = {
       }
       is_active_member: { Args: { _user_id: string }; Returns: boolean }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
+      mentorship_account: { Args: { p_user_id?: string }; Returns: Json }
+      mentorship_confirm_payment: {
+        Args: { p_installment_id: string; p_note?: string; p_paid_on: string }
+        Returns: undefined
+      }
+      mentorship_receipt_path: {
+        Args: { p_path: string; p_upload?: boolean }
+        Returns: boolean
+      }
+      mentorship_register_receipt: {
+        Args: {
+          p_file_name: string
+          p_installment_id: string
+          p_paid_on: string
+          p_path: string
+        }
+        Returns: string
+      }
+      mentorship_review_receipt: {
+        Args: { p_decision: string; p_note?: string; p_receipt_id: string }
+        Returns: undefined
+      }
+      mentorship_save_plan: {
+        Args: {
+          p_duration_count: number
+          p_duration_unit: string
+          p_expected_revision?: number
+          p_first_due_date: string
+          p_id: string
+          p_installment_count: number
+          p_start_date: string
+          p_total_cents: number
+          p_user_id: string
+        }
+        Returns: string
+      }
+      recordings_can_read: { Args: { p_id: string }; Returns: boolean }
+      recordings_can_read_path: { Args: { p_path: string }; Returns: boolean }
+      recordings_can_upload: { Args: { p_path: string }; Returns: boolean }
+      recordings_create: {
+        Args: {
+          p_description: string
+          p_file_name: string
+          p_mime_type: string
+          p_recorded_on: string
+          p_size_bytes: number
+          p_title: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      recordings_learning: { Args: { p_id: string }; Returns: Json }
+      recordings_list: { Args: { p_user_id: string }; Returns: Json }
+      recordings_publish: { Args: { p_id: string }; Returns: Json }
+      recordings_save_note: {
+        Args: { p_content: string; p_id: string; p_revision: number }
+        Returns: Json
+      }
+      recordings_save_position: {
+        Args: { p_id: string; p_seconds: number }
+        Returns: undefined
+      }
       touch_last_seen: { Args: never; Returns: undefined }
     }
     Enums: {
