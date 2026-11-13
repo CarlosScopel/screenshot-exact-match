@@ -11,6 +11,7 @@ import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import { activateOwnerAccess } from "@/lib/owner.functions";
+import { loadPlatformSettings } from "@/lib/platform-settings";
 
 type Profile = Tables<"profiles">;
 type Settings = Tables<"platform_settings">;
@@ -45,6 +46,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [requiresPasswordSetup, setRequiresPasswordSetup] = useState(false);
   const [accessError, setAccessError] = useState("");
   const loadVersion = useRef(0);
+  const settingsVersion = useRef(0);
+  const signedIn = useRef(false);
 
   const loadUser = useCallback(async (s: Session | null) => {
     const version = ++loadVersion.current;
@@ -80,16 +83,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshSettings = useCallback(async () => {
-    const { data: full } = await supabase
-      .from("platform_settings")
-      .select("*")
-      .eq("id", 1)
-      .maybeSingle();
-    let data = full as Settings | null;
-    if (!data) {
-      const { data: pub } = await supabase.rpc("get_public_branding");
-      data = pub ? ({ support_email: null, support_whatsapp: null, ...(pub as object) } as Settings) : null;
-    }
+    const version = ++settingsVersion.current;
+    const data = await loadPlatformSettings(signedIn.current);
+    if (version !== settingsVersion.current) return;
     setSettings(data ?? null);
     hexToApply(data?.primary_color);
   }, []);
@@ -101,6 +97,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (linkType === "invite" || linkType === "recovery") setRequiresPasswordSetup(true);
     refreshSettings();
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+      signedIn.current = !!s;
+      ++settingsVersion.current;
+      setSettings(null);
       setSession(s);
       if (event === "PASSWORD_RECOVERY") setRequiresPasswordSetup(true);
       if (event === "SIGNED_OUT") setRequiresPasswordSetup(false);
@@ -119,7 +118,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     supabase.auth
       .getSession()
       .then(async ({ data }) => {
+        signedIn.current = !!data.session;
         setSession(data.session);
+        await refreshSettings();
         await loadUser(data.session);
         if (data.session) supabase.rpc("touch_last_seen");
       })

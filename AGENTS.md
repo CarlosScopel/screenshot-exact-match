@@ -30,3 +30,4 @@ use the editor.
 <!-- LOVABLE:END -->
 
 - Password recovery uses a public `/reset-password` route and validates the callback with Auth before updating a password; URL type flags alone never prove a valid recovery session. Legacy root callbacks remain supported.
+- Load branding through the public RPC while signed out; query private platform settings only with a session and discard stale reads after auth transitions to avoid forbidden requests and stale support details.
