@@ -22,6 +22,20 @@
       "when": 1794486634880,
       "tag": "0002_tighten_settings_and_media",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794574284907,
+      "tag": "0003_bind_branding_media_reads",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794574298596,
+      "tag": "0004_branding_media_helper",
+      "breakpoints": true
     }
   ]
 }

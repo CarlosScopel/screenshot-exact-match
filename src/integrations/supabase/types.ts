@@ -917,6 +917,7 @@ export type Database = {
       }
       is_active_member: { Args: { _user_id: string }; Returns: boolean }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
+      is_branding_media: { Args: { p_name: string }; Returns: boolean }
       mentorship_account: { Args: { p_user_id?: string }; Returns: Json }
       mentorship_confirm_payment: {
         Args: { p_installment_id: string; p_note?: string; p_paid_on: string }
