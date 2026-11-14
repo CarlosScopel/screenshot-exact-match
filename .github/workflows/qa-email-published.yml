@@ -1,0 +1,81 @@
+name: QA published email input
+on:
+  push:
+    branches: [qa/login-email-spacing-20261114]
+    paths: [.github/workflows/qa-email-published.yml]
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  published:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Isolated browser tooling
+        run: |
+          mkdir -p qa-reports
+          npm install --prefix "$RUNNER_TEMP/browser" --no-save --package-lock=false playwright
+          node "$RUNNER_TEMP/browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Verify published login signup and recovery without submitting any form
+        run: |
+          export PLAYWRIGHT_PATH="$RUNNER_TEMP/browser/node_modules/playwright/index.mjs"
+          node --input-type=module <<'JS'
+          import {writeFile} from 'node:fs/promises';
+          import {pathToFileURL} from 'node:url';
+          const {chromium}=await import(pathToFileURL(process.env.PLAYWRIGHT_PATH).href);
+          const browser=await chromium.launch({headless:true});
+          const results=[],errors=[];
+          try {
+            for(const [viewport,width,height] of [['desktop',1440,1000],['mobile',390,844]]){
+              const page=await browser.newPage({viewport:{width,height}});
+              page.on('pageerror',e=>errors.push(String(e)));
+              let ready=false;
+              for(let attempt=0;attempt<12;attempt++){
+                await page.goto('https://pixel-perfect-replay-54723.lovable.app/?qa_email='+Date.now(),{waitUntil:'domcontentloaded'});
+                const input=page.getByRole('textbox',{name:'E-mail',exact:true});
+                await input.waitFor({timeout:30000});
+                ready=await input.evaluate(el=>el.style.paddingLeft==='2.75rem');
+                if(ready)break;
+                await page.waitForTimeout(5000);
+              }
+              if(!ready)throw Error('Corrected version is not visible on published site');
+              for(const mode of ['login','forgot','request']){
+                if(mode==='forgot')await page.getByRole('button',{name:'Esqueceu sua senha?',exact:true}).click();
+                if(mode==='request'){
+                  await page.getByRole('button',{name:'Voltar ao login',exact:true}).click();
+                  await page.getByRole('button',{name:'Quero fazer parte de A ORDEM',exact:true}).click();
+                }
+                const input=page.getByRole('textbox',{name:'E-mail',exact:true});
+                await input.fill('');
+                const layout=await input.evaluate(el=>{
+                  const style=getComputedStyle(el),box=el.getBoundingClientRect(),icon=el.parentElement.querySelector('svg'),ib=icon.getBoundingClientRect();
+                  return {paddingLeft:style.paddingLeft,gap:box.left+parseFloat(style.borderLeftWidth)+parseFloat(style.paddingLeft)-ib.right,centerDelta:Math.abs((box.top+box.height/2)-(ib.top+ib.height/2)),pointerEvents:getComputedStyle(icon).pointerEvents,iconX:ib.left+ib.width/2,iconY:ib.top+ib.height/2,overflow:document.documentElement.scrollWidth>innerWidth+1};
+                });
+                if(layout.gap<8||layout.centerDelta>1||layout.pointerEvents!=='none'||layout.overflow)throw Error(JSON.stringify({viewport,mode,layout}));
+                await page.mouse.click(layout.iconX,layout.iconY);
+                if(!await input.evaluate(el=>document.activeElement===el))throw Error('Click at icon did not focus input');
+                await input.fill('aluno@example.invalid');
+                if(await input.inputValue()!=='aluno@example.invalid')throw Error('Email typing failed');
+                await input.fill('');
+                await page.screenshot({path:`qa-reports/published-${viewport}-${mode}.png`,fullPage:true});
+                results.push({viewport,mode,...layout,iconClickFocus:true,emailTyping:true});
+              }
+              await page.close();
+            }
+            if(errors.length)throw Error(errors.join('\n'));
+          }finally{
+            await writeFile('qa-reports/published-email.json',JSON.stringify({site:'https://pixel-perfect-replay-54723.lovable.app',results,errors,accountAccess:false,formSubmissions:0},null,2));
+            await browser.close();
+          }
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: published-email-evidence
+          path: qa-reports/
+          retention-days: 7
