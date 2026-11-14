@@ -209,9 +209,13 @@ export function AccessScreen({
                 <label className="block text-sm font-medium">
                   E-mail
                   <div className="relative mt-2">
-                    <Mail className="absolute left-3.5 top-3.5 size-4 text-muted-foreground" />
+                    <Mail
+                      aria-hidden="true"
+                      className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                    />
                     <input
-                      className="portal-input pl-11"
+                      className="portal-input"
+                      style={{ paddingLeft: "2.75rem" }}
                       type="email"
                       autoComplete="email"
                       required
