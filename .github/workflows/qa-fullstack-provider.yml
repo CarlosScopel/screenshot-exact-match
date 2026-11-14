@@ -10,7 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      QA_TOOLS: ${{ runner.temp }}/qa-tools
       WRANGLER_SEND_METRICS: 'false'
     defaults:
       run:
@@ -26,6 +25,7 @@ jobs:
           version: v2.stable
       - name: Read prior inspected setup and correct provider configuration only
         run: |
+          echo "QA_TOOLS=$RUNNER_TEMP/qa-tools" >> "$GITHUB_ENV"
           python3 <<'PY'
           from pathlib import Path
           import yaml,os
