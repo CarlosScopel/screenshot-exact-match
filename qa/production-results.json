@@ -1,0 +1,53 @@
+{
+  "marker": "QA-43617995818",
+  "accounts": [
+    {
+      "kind": "admin",
+      "name": "[QA-43617995818] Administrador temporário",
+      "email": "dudu.escopelcarlos253+ordemqa43617995818admin@gmail.com"
+    },
+    {
+      "kind": "a",
+      "name": "[QA-43617995818] Aluno A",
+      "email": "dudu.escopelcarlos253+ordemqa43617995818a@gmail.com"
+    },
+    {
+      "kind": "b",
+      "name": "[QA-43617995818] Aluno B",
+      "email": "dudu.escopelcarlos253+ordemqa43617995818b@gmail.com"
+    },
+    {
+      "kind": "rejected",
+      "name": "[QA-43617995818] Recusado",
+      "email": "dudu.escopelcarlos253+ordemqa43617995818rejected@gmail.com"
+    }
+  ],
+  "trainingId": null,
+  "moduleId": null,
+  "lessonId": null,
+  "recording": null,
+  "materialPath": null,
+  "receiptPaths": [],
+  "tests": [
+    {
+      "name": "public-access-request-admin",
+      "status": "passed"
+    },
+    {
+      "name": "public-access-request-a",
+      "status": "passed"
+    },
+    {
+      "name": "public-access-request-b",
+      "status": "passed"
+    },
+    {
+      "name": "public-access-request-rejected",
+      "status": "passed"
+    },
+    {
+      "name": "pending-account-cannot-login",
+      "status": "passed"
+    }
+  ]
+}
