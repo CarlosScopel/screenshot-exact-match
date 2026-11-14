@@ -1,0 +1,44 @@
+name: QA launch real authenticated journeys
+on:
+  push:
+    branches: [qa/launch-live-20261114-final]
+    paths: [.github/workflows/qa-launch-live.yml]
+permissions:
+  contents: read
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    env:
+      APP_SHA: b998ea16809fed0073a258004ac524d52829073b
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Isolated testing dependencies
+        run: |
+          npm install --prefix "$RUNNER_TEMP/qa-tools" --no-save --package-lock=false @supabase/supabase-js playwright bcryptjs
+          node "$RUNNER_TEMP/qa-tools/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Generate credentials in runner memory only
+        run: QA_TOOLS="$RUNNER_TEMP/qa-tools" node --env-file=.env qa/launch-live.mjs prepare
+      - name: Provisioning request (salted hashes, never passwords)
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-live-provision
+          path: qa-live-evidence/provision.json
+          retention-days: 1
+      - name: Published UI and actual Auth REST Storage and RPC validation
+        run: QA_TOOLS="$RUNNER_TEMP/qa-tools" node --env-file=.env qa/launch-live.mjs run
+      - name: Remove temporary credentials from runner
+        if: always()
+        run: rm -f "$RUNNER_TEMP/ordem-live-credentials.json"
+      - name: Sanitized validation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-live-results
+          path: |
+            qa-live-evidence/report.json
+            qa-live-evidence/*.png
+          retention-days: 7
