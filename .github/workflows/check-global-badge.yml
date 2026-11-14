@@ -1,0 +1,69 @@
+name: Verify published global badge CSS
+on:
+  push:
+    branches: ['qa/global-badge-20261114']
+    paths: ['.github/workflows/check-global-badge.yml']
+permissions:
+  contents: read
+jobs:
+  published-css:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify source scope and public stylesheets without account access
+        shell: bash
+        run: |
+          mkdir -p qa-reports
+          python3 <<'PY'
+          import json, re, time, urllib.request, urllib.parse, urllib.error
+          from html.parser import HTMLParser
+          from pathlib import Path
+          base = 'https://pixel-perfect-replay-54723.lovable.app'
+          rule = re.compile(r'#lovable-badge\s*\{\s*display\s*:\s*none\s*!important\s*;?\s*\}')
+          assert rule.search(Path('src/styles.css').read_text())
+          root = Path('src/routes/__root.tsx').read_text()
+          assert '../styles.css?url' in root and 'href: appCss' in root
+          class Styles(HTMLParser):
+              def __init__(self):
+                  super().__init__(); self.urls=[]
+              def handle_starttag(self, tag, attrs):
+                  a=dict(attrs)
+                  if tag=='link' and a.get('rel')=='stylesheet' and a.get('href'):
+                      self.urls.append(a['href'])
+          def read(url):
+              req=urllib.request.Request(url, headers={'Cache-Control':'no-cache','User-Agent':'A-ORDEM-CSS-Validation'})
+              try:
+                  with urllib.request.urlopen(req, timeout=20) as r: return r.status,r.read().decode()
+              except urllib.error.HTTPError as e:
+                  if e.code==404: return e.code,e.read().decode()
+                  raise
+          results=[]
+          for route in ['/', '/reset-password', '/qa-badge-nonexistent-page']:
+              last=''
+              for attempt in range(10):
+                  try:
+                      status,html=read(base+route+'?qa_badge=d07341e')
+                      p=Styles(); p.feed(html)
+                      checks=[]
+                      for href in p.urls:
+                          css_url=urllib.parse.urljoin(base,href)
+                          if urllib.parse.urlparse(css_url).netloc != urllib.parse.urlparse(base).netloc: continue
+                          css_status,css=read(css_url)
+                          checks.append({'url':css_url,'status':css_status,'requested_rule':bool(rule.search(css))})
+                      if any(c['requested_rule'] for c in checks):
+                          results.append({'route':route,'status':status,'stylesheets':checks,'passed':True}); break
+                      last='Requested rule not present in published stylesheet yet'
+                  except Exception as e: last=str(e)
+                  time.sleep(6)
+              else: raise RuntimeError(route+': '+last)
+          report={'source_global_import_verified':True,'routes':results,'account_access':False,'production_data_modified':False}
+          Path('qa-reports/published-css.json').write_text(json.dumps(report,indent=2))
+          print(json.dumps(report,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: global-badge-publication
+          path: qa-reports/
+          retention-days: 7
