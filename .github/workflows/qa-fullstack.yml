@@ -1,0 +1,184 @@
+name: QA complete isolated Supabase integration
+on:
+  push:
+    branches: [qa/fullstack-release-20261114]
+    paths: [.github/workflows/qa-fullstack.yml]
+permissions:
+  contents: read
+jobs:
+  fullstack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - uses: supabase/setup-cli@v3
+        with:
+          version: v2.stable
+      - name: Prepare isolated Supabase configuration
+        run: |
+          mkdir -p "$RUNNER_TEMP/ordem-stack" qa-reports qa-fixtures qa
+          supabase init --workdir "$RUNNER_TEMP/ordem-stack"
+          python3 <<'PY'
+          from pathlib import Path
+          import os,re
+          p=Path(os.environ['RUNNER_TEMP'])/'ordem-stack/supabase/config.toml'
+          s=p.read_text()
+          def setting(section,key,value):
+            global s
+            pattern=r'(?ms)(^\['+re.escape(section)+r'\]\s*\n)(.*?)(?=^\[|\Z)'
+            m=re.search(pattern,s)
+            if not m: raise RuntimeError('Missing config section '+section)
+            body=m.group(2)
+            line=r'(?m)^'+re.escape(key)+r'\s*=.*$'
+            body=re.sub(line,key+' = '+value,body) if re.search(line,body) else body+'\n'+key+' = '+value+'\n'
+            s=s[:m.start()]+m.group(1)+body+s[m.end():]
+          setting('auth','site_url','"http://127.0.0.1:4173"')
+          setting('auth','additional_redirect_urls','["https://pixel-perfect-replay-54723.lovable.app/**", "http://127.0.0.1:4173/**"]')
+          setting('auth','enable_signup','false')
+          setting('auth.email','enable_signup','false')
+          setting('auth.email','enable_confirmations','true')
+          setting('auth.email','max_frequency','"0s"')
+          setting('studio','enabled','false')
+          setting('analytics','enabled','false')
+          p.write_text(s)
+          PY
+      - name: Start real local Auth Postgres Storage and SMTP capture
+        run: |
+          supabase start --workdir "$RUNNER_TEMP/ordem-stack" -x studio,realtime,edge-runtime,logflare,vector,supavisor,imgproxy,postgres-meta > "$RUNNER_TEMP/stack-start.log" 2>&1 || { sed -E 's/(eyJ[A-Za-z0-9_.-]+)/[REDACTED]/g' "$RUNNER_TEMP/stack-start.log" | tail -60; exit 1; }
+          supabase status --workdir "$RUNNER_TEMP/ordem-stack" -o json > "$RUNNER_TEMP/stack-status.json"
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const s=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/stack-status.json','utf8'));
+          const url=s.API_URL,anon=s.ANON_KEY,service=s.SERVICE_ROLE_KEY;
+          if(!url?.startsWith('http://127.0.0.1:')||!anon||!service)throw Error('Local service configuration missing');
+          for(const v of [anon,service])console.log('::add-mask::'+v);
+          fs.writeFileSync('.env',`VITE_SUPABASE_URL=${url}\nVITE_SUPABASE_PUBLISHABLE_KEY=${anon}\n`);
+          fs.writeFileSync(process.env.RUNNER_TEMP+'/local.env',`SUPABASE_URL=${url}\nSUPABASE_SERVICE_ROLE_KEY=${service}\nVITE_SUPABASE_URL=${url}\nVITE_SUPABASE_PUBLISHABLE_KEY=${anon}\nQA_MAIL_URL=${s.MAILPIT_URL||s.INBUCKET_URL||'http://127.0.0.1:54324'}\n`);
+          fs.writeFileSync('qa-reports/stack.json',JSON.stringify({api:'local',auth:'real',postgres:'real',storage:'real',smtp:'captured locally, never delivered externally'},null,2));
+          JS
+      - name: Apply repository schema only to disposable database
+        run: |
+          for file in drizzle/migrations/0000_migration.sql drizzle/migrations/0001_migration.sql drizzle/migrations/0002_tighten_settings_and_media.sql scripts/setup-mentorship-billing.sql scripts/setup-mentorship-recordings.sql; do
+            psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -v ON_ERROR_STOP=1 -f "$file" >> qa-reports/schema.log 2>&1
+          done
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -v ON_ERROR_STOP=1 -c "INSERT INTO storage.buckets(id,name,public) VALUES ('materials','materials',false),('media','media',false) ON CONFLICT(id) DO NOTHING; NOTIFY pgrst,'reload schema';" >> qa-reports/schema.log 2>&1
+      - name: Install existing app and isolated browser tooling
+        run: |
+          bun install --frozen-lockfile
+          npm install --prefix "$RUNNER_TEMP/qa-tools" --no-save --package-lock=false playwright wrangler
+          node "$RUNNER_TEMP/qa-tools/node_modules/playwright/cli.js" install --with-deps chromium
+          sudo apt-get install -y ffmpeg > "$RUNNER_TEMP/ffmpeg-install.log" 2>&1
+          ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=black:s=320x180:d=5 -f lavfi -i anullsrc=r=44100:cl=mono -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac -movflags +faststart qa-fixtures/call.mp4
+      - name: Prepare end-to-end harness using official local Auth admin API
+        env:
+          QA_TOOLS: ${{ runner.temp }}/qa-tools
+        run: |
+          git fetch origin qa/release-readiness-20261114 --depth=1
+          git show FETCH_HEAD:qa/production-validation.mjs > qa/fullstack.mjs
+          python3 <<'PY'
+          from pathlib import Path
+          p=Path('qa/fullstack.mjs');s=p.read_text()
+          s=s.replace("const bcrypt = (await import(pathToFileURL(process.env.QA_TOOLS + '/node_modules/bcryptjs/index.js'))).default;",'')
+          s=s.replace("const base = 'https://pixel-perfect-replay-54723.lovable.app';", "const base = 'http://127.0.0.1:4173';")
+          s=s.replace("environment: 'published production, real Auth/API/Storage, no mocks'", "environment: 'isolated real Supabase stack and unchanged application build; no mock Auth, SMTP, database or Storage responses'")
+          s=s.replace("'QA passwords are seeded out of band only for newly requested QA accounts; receiving/opening real email is not inferred from provider acceptance.'", "'Email is delivered to a local SMTP capture server, not Gmail. Real production account administration and inbox delivery remain separate checks.'")
+          s=s.replace("password_hash:await bcrypt.hash(password,12)","password_hash:null")
+          s=s.replace("`dudu.escopelcarlos253+ordemqa${run}${kind}@gmail.com`", "`qa-${run}-${kind}@example.test`")
+          anchor='  browser=await chromium.launch({headless:true});'
+          s=s.replace(anchor,"  assert.equal(sbUrl,'http://127.0.0.1:54321','Never run this harness against production');\n"+anchor)
+          old="    if(!await test('public-access-request-'+kind,()=>signup(prep,a)))throw Error('Unable to create isolated QA account through the published request form.');"
+          new="""    if(kind==='admin') {
+                const service=createClient(sbUrl,process.env.SUPABASE_SERVICE_ROLE_KEY,{auth:{persistSession:false,autoRefreshToken:false}});
+                const u=must(await service.auth.admin.createUser({email:a.email,password:a.password,email_confirm:true,user_metadata:{full_name:a.name}}),'local QA admin');
+                a.id=u.user.id;must(await service.from('user_roles').insert({user_id:a.id,role:'admin'}),'local QA role');
+              } else if(!await test('public-access-request-'+kind,()=>signup(prep,a))) throw Error('Access request failed');"""
+          assert old in s;s=s.replace(old,new)
+          start=s.index("  await publish('seed-manifest'")
+          end=s.index("  const adm=clients.admin;",start)
+          s=s[:start]+"  await session('admin');\n"+s[end:]
+          marker="  const a=account('a'),b=account('b');await session('a');await session('b');"
+          s=s.replace(marker,"  await test('delivered-approval-email-and-password-setup-a',()=>activateFromMail(account('a')));\n  await test('delivered-approval-email-and-password-setup-b',()=>activateFromMail(account('b')));\n"+marker)
+          s=s.replace("f.locator('button[type=\"submit\"]').click()", "f.getByRole('button',{name:'Enviar para análise',exact:true}).click()")
+          s=s.replace("ap.getByRole('form',{name:'Pagamento da parcela 1'}).locator('button[type=\"submit\"]').click()", "ap.getByRole('form',{name:'Pagamento da parcela 1'}).getByRole('button',{name:'Confirmar recusa',exact:true}).click()")
+          s=s.replace("getByRole('heading',{name:'Meu plano e pagamentos',exact:true}).waitFor()", "getByRole('heading',{name:'Meu plano e pagamentos',exact:true}).first().waitFor()")
+          s=s.replace("private-material-download-real-bytes", "private-material-download-real-bytes")
+          start=s.index('  const inventory={marker,accounts:')
+          end=s.index('  for(const c of Object.values(clients))',start)
+          s=s[:start]+"  report.cleanup={mode:'disposable local stack removed by always-run workflow cleanup'};\n"+s[end:]
+          helper=r'''
+          const seenMail=new Set();
+          async function activateFromMail(a){
+            let message;
+            const mailBase=process.env.QA_MAIL_URL.replace(/\/$/,'');
+            for(let i=0;i<40;i++){
+              const r=await fetch(mailBase+'/api/v1/messages');if(!r.ok)throw Error('SMTP capture API HTTP '+r.status);
+              const list=await r.json();
+              const hit=(list.messages||[]).find(m=>!seenMail.has(m.ID)&&m.To?.some(t=>t.Address?.toLowerCase()===a.email));
+              if(hit){message=await (await fetch(mailBase+'/api/v1/message/'+hit.ID)).json();seenMail.add(hit.ID);break;}
+              await delay(500);
+            }
+            assert.ok(message,'No captured email for approved account');
+            const body=message.HTML||message.Text||'';
+            const match=body.match(/https?:\/\/[^\s"<>]+\/auth\/v1\/verify\?[^\s"<>]+/);
+            assert.ok(match,'No verification link in delivered email');
+            const link=match[0].replaceAll('&amp;','&');
+            assert.equal(new URL(link).origin,sbUrl);
+            const r=await fetch(link,{redirect:'manual'});assert.equal(r.status,303);
+            const target=new URL(r.headers.get('location'));
+            assert.equal(target.origin,'https://pixel-perfect-replay-54723.lovable.app');
+            assert.equal(target.pathname,'/reset-password');
+            assert.ok(target.hash.includes('access_token='),'Recovery did not issue a real session');
+            const ctx=await browser.newContext();const p=await ctx.newPage();p.setDefaultTimeout(20000);
+            await p.goto(base+target.pathname+target.search+target.hash,{waitUntil:'domcontentloaded'});
+            await p.getByLabel('Senha',{exact:true}).fill(a.password);
+            await p.getByLabel('Confirmar senha',{exact:true}).fill(a.password);
+            await p.getByRole('button',{name:'Salvar nova senha',exact:true}).click();
+            await p.getByRole('button',{name:'Sair da conta',exact:true}).waitFor();
+            await p.getByRole('button',{name:'Sair da conta',exact:true}).click();
+            await ctx.close();
+          }
+          '''
+          s=s.replace('try {\n  assert.equal(sbUrl',helper+'\ntry {\n  assert.equal(sbUrl')
+          p.write_text(s)
+          PY
+          node --input-type=module <<'JS'
+          import {pathToFileURL} from 'node:url';
+          const {chromium}=await import(pathToFileURL(process.env.QA_TOOLS+'/node_modules/playwright/index.mjs'));
+          const b=await chromium.launch({headless:true});const p=await b.newPage({viewport:{width:600,height:300}});
+          await p.setContent('<main style="font:24px sans-serif;padding:30px"><h1>TESTE QA</h1><strong>SEM VALOR FINANCEIRO</strong><p>Arquivo fictício para validar anexos.</p></main>');
+          await p.screenshot({path:'qa-fixtures/sem-valor.png'});await b.close();
+          JS
+      - name: Build unmodified app against isolated services
+        run: bun run build > qa-reports/build.log 2>&1
+      - name: Real authenticated complete journeys on Cloudflare runtime
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+          QA_TOOLS: ${{ runner.temp }}/qa-tools
+        run: |
+          node --env-file="$RUNNER_TEMP/local.env" --input-type=module -e 'import fs from "node:fs";fs.writeFileSync(".output/server/.dev.vars",`SUPABASE_URL=${JSON.stringify(process.env.SUPABASE_URL)}\nSUPABASE_PUBLISHABLE_KEY=${JSON.stringify(process.env.VITE_SUPABASE_PUBLISHABLE_KEY)}\nSUPABASE_SERVICE_ROLE_KEY=${JSON.stringify(process.env.SUPABASE_SERVICE_ROLE_KEY)}\n`);'
+          node "$RUNNER_TEMP/qa-tools/node_modules/wrangler/bin/wrangler.js" dev --config .output/server/wrangler.json --local --ip 127.0.0.1 --port 4173 > "$RUNNER_TEMP/qa-server.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 40); do if curl -fsS http://127.0.0.1:4173 >/dev/null;then break;fi;sleep 1;done
+          node --env-file="$RUNNER_TEMP/local.env" qa/fullstack.mjs
+      - name: Remove disposable services and all QA identities/files
+        if: always()
+        run: supabase stop --workdir "$RUNNER_TEMP/ordem-stack" --no-backup > "$RUNNER_TEMP/stack-stop.log" 2>&1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: isolated-fullstack-evidence
+          path: |
+            qa-reports/production.json
+            qa-reports/real-*.png
+            qa-reports/schema.log
+            qa-reports/build.log
+            qa-reports/stack.json
+          retention-days: 7
