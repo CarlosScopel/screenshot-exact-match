@@ -23,7 +23,7 @@ jobs:
       - uses: supabase/setup-cli@v3
         with:
           version: v2.stable
-      - name: Read prior inspected setup and correct provider configuration only
+      - name: Read inspected setup and align local email provider
         run: |
           echo "QA_TOOLS=$RUNNER_TEMP/qa-tools" >> "$GITHUB_ENV"
           python3 <<'PY'
@@ -40,7 +40,7 @@ jobs:
               text=text.replace(old,"setting('auth.email','enable_signup','true')")
             (root/f'{i}.sh').write_text('set -euo pipefail\n'+text)
           PY
-      - name: Initialize local configuration with global signup disabled and email login enabled
+      - name: Initialize local configuration with global signup disabled
         run: bash "$RUNNER_TEMP/fullstack-steps/0.sh"
       - name: Start actual Supabase local services
         run: bash "$RUNNER_TEMP/fullstack-steps/1.sh"
@@ -49,7 +49,21 @@ jobs:
       - name: Install app browser and synthetic video generator
         run: bash "$RUNNER_TEMP/fullstack-steps/3.sh"
       - name: Prepare real integration journeys
-        run: bash "$RUNNER_TEMP/fullstack-steps/4.sh"
+        run: |
+          bash "$RUNNER_TEMP/fullstack-steps/4.sh"
+          python3 <<'PY'
+          from pathlib import Path
+          p=Path('qa/fullstack.mjs');s=p.read_text()
+          for label in ['Unidade de duração','Forma de pagamento']:
+            old="getByLabel('"+label+"',{exact:true})"
+            assert old in s, label
+            s=s.replace(old,"getByRole('combobox',{name:/^"+label+"/})")
+          old="return String(e?.message || e).replace(/eyJ[A-Za-z0-9_.-]+/g,'[TOKEN REDACTED]').slice(0,1000);"
+          assert old in s
+          s=s.replace(old,"let text=String(e?.message || e).replace(/eyJ[A-Za-z0-9_.-]+/g,'[TOKEN REDACTED]');for(const a of state.accounts)text=text.split(a.password).join('[REDACTED]');return text.slice(0,1000);")
+          s=s.replace("assert.equal(ac.installments.filter(i=>!i.paid_at).reduce((s,i)=>s+i.amount_cents,0),50);", "assert.equal(ac.installments.filter(i=>!i.paid_at).reduce((s,i)=>s+i.amount_cents,0),50);await ap.screenshot({path:`${out}/real-admin-payments.png`,fullPage:true});")
+          p.write_text(s)
+          PY
       - name: Build unchanged application
         run: bash "$RUNNER_TEMP/fullstack-steps/5.sh"
       - name: Validate authenticated UI email storage and financial flows
