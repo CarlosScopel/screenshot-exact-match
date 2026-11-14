@@ -1,0 +1,167 @@
+name: QA email input spacing
+on:
+  push:
+    branches: [qa/login-email-spacing-20261114]
+    paths: [.github/workflows/qa-email-spacing.yml]
+permissions:
+  contents: write
+defaults:
+  run:
+    shell: bash
+jobs:
+  email:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+      - name: Install existing locked dependencies
+        run: bun install --frozen-lockfile
+      - name: Apply only email input spacing and decorative icon fix
+        run: |
+          mkdir -p qa-reports
+          python3 <<'PY'
+          from pathlib import Path
+          import hashlib
+          p=Path('src/components/portal/AccessScreen.tsx')
+          original=p.read_bytes()
+          assert hashlib.sha1(b'blob '+str(len(original)).encode()+b'\0'+original).hexdigest()=='98665de6f0dea568e9191e11e59db6733549bbc0', 'Source changed; inspect before editing'
+          s=original.decode()
+          old='<Mail className="absolute left-3.5 top-3.5 size-4 text-muted-foreground" />'
+          new='<Mail\n                      aria-hidden="true"\n                      className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"\n                    />'
+          assert s.count(old)==1
+          s=s.replace(old,new)
+          old='className="portal-input pl-11"'
+          new='className="portal-input"\n                      style={{ paddingLeft: "2.75rem" }}'
+          assert s.count(old)==1
+          s=s.replace(old,new)
+          p.write_text(s)
+          PY
+          cat > src/test/access-email-layout.test.tsx <<'TSX'
+          import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+          import { afterEach, describe, expect, it, vi } from "vitest";
+          import { AccessScreen } from "@/components/portal/AccessScreen";
+          vi.mock("@/integrations/supabase/client", () => ({ supabase: { auth: {} } }));
+          vi.mock("@/lib/admin.functions", () => ({ requestMenteeAccess: vi.fn() }));
+          vi.mock("@/lib/media", () => ({ useMedia: () => null }));
+          vi.mock("@/lib/password-recovery", () => ({
+            INVALID_RECOVERY_LINK: "Link inválido",
+            saveRecoveredPassword: vi.fn(),
+            validatePasswordRecovery: vi.fn(),
+          }));
+          afterEach(cleanup);
+          describe("Espaçamento do e-mail nas telas de acesso", () => {
+            it.each(["login", "forgot", "request"] as const)(
+              "reserva espaço ao ícone sem bloquear digitação em %s",
+              async (mode) => {
+                render(<AccessScreen name="A ORDEM" onSuccess={vi.fn()} />);
+                await screen.findByRole("textbox", { name: "E-mail" });
+                if (mode === "forgot") fireEvent.click(screen.getByRole("button", { name: "Esqueceu sua senha?" }));
+                if (mode === "request") fireEvent.click(screen.getByRole("button", { name: "Quero fazer parte de A ORDEM" }));
+                const input = screen.getByRole("textbox", { name: "E-mail" });
+                expect(input).toHaveStyle({ paddingLeft: "2.75rem" });
+                expect(input).toHaveAttribute("type", "email");
+                expect(input).toHaveAttribute("autocomplete", "email");
+                expect(input).toHaveAttribute("placeholder", "voce@exemplo.com");
+                const icon = input.parentElement?.querySelector("svg");
+                expect(icon).toHaveAttribute("aria-hidden", "true");
+                expect(icon).toHaveClass("pointer-events-none", "top-1/2", "-translate-y-1/2");
+                fireEvent.change(input, { target: { value: "aluno@example.invalid" } });
+                expect(input).toHaveValue("aluno@example.invalid");
+              },
+            );
+          });
+          TSX
+          bunx prettier --write src/test/access-email-layout.test.tsx
+          git diff -- src/components/portal/AccessScreen.tsx > qa-reports/change.diff
+      - name: TypeScript and full test suite
+        run: |
+          bunx tsc --noEmit 2>&1 | tee qa-reports/typescript.log
+          bun run test 2>&1 | tee qa-reports/unit-tests.log
+      - name: Scoped lint without unrelated existing formatting changes
+        run: |
+          bunx eslint src/components/portal/AccessScreen.tsx src/test/access-email-layout.test.tsx --rule 'prettier/prettier: off' 2>&1 | tee qa-reports/lint.log
+          bunx prettier --check src/test/access-email-layout.test.tsx
+      - name: Production build
+        run: bun run build 2>&1 | tee qa-reports/build.log
+      - name: Isolated browser tooling
+        run: |
+          npm install --prefix "$RUNNER_TEMP/browser" --no-save --package-lock=false playwright
+          node "$RUNNER_TEMP/browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Actual access component and styles on desktop and mobile
+        run: |
+          export PLAYWRIGHT_PATH="$RUNNER_TEMP/browser/node_modules/playwright/index.mjs"
+          node --input-type=module <<'JS'
+          import { writeFile, mkdir } from 'node:fs/promises';
+          import { pathToFileURL } from 'node:url';
+          import path from 'node:path';
+          import {createServer} from 'vite';
+          import react from '@vitejs/plugin-react';
+          import tailwind from '@tailwindcss/vite';
+          const {chromium}=await import(pathToFileURL(process.env.PLAYWRIGHT_PATH).href);
+          await mkdir('.qa-email',{recursive:true});
+          await writeFile('.qa-email/stubs.ts', `export const supabase={auth:{}};export const useMedia=()=>null;export const requestMenteeAccess=()=>{throw Error('No production calls in visual test')};export const INVALID_RECOVERY_LINK='Link inválido';export const validatePasswordRecovery=async()=>false;export const saveRecoveredPassword=async()=>{};`);
+          await writeFile('qa-email.html','<html lang="pt-BR"><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="root"></div><script type="module" src="/qa-email.tsx"></script></body></html>');
+          await writeFile('qa-email.tsx',`import {createRoot} from 'react-dom/client';import {AccessScreen} from './src/components/portal/AccessScreen';import './src/styles.css';createRoot(document.getElementById('root')!).render(<AccessScreen name="A ORDEM" onSuccess={()=>{}}/>);`);
+          const aliases=['@/integrations/supabase/client','@/lib/media','@/lib/admin.functions','@/lib/password-recovery'].map(find=>({find,replacement:path.resolve('.qa-email/stubs.ts')}));
+          aliases.push({find:'@',replacement:path.resolve('src')});
+          const server=await createServer({configFile:false,root:process.cwd(),plugins:[react(),tailwind()],resolve:{alias:aliases},server:{host:'127.0.0.1',port:4179}});
+          await server.listen();
+          const browser=await chromium.launch({headless:true});
+          const results=[],errors=[];
+          try {
+            for(const [viewport,width,height] of [['desktop',1440,1000],['mobile',390,844]]){
+              const page=await browser.newPage({viewport:{width,height}});
+              page.on('pageerror',e=>errors.push(String(e)));
+              await page.route('**/*',route=>new URL(route.request().url()).hostname==='127.0.0.1'?route.continue():route.abort());
+              await page.goto('http://127.0.0.1:4179/qa-email.html');
+              for(const mode of ['login','forgot','request']){
+                if(mode==='forgot')await page.getByRole('button',{name:'Esqueceu sua senha?',exact:true}).click();
+                if(mode==='request'){
+                  await page.getByRole('button',{name:'Voltar ao login',exact:true}).click();
+                  await page.getByRole('button',{name:'Quero fazer parte de A ORDEM',exact:true}).click();
+                }
+                const input=page.getByRole('textbox',{name:'E-mail',exact:true});
+                await input.waitFor();await input.fill('');
+                const layout=await input.evaluate(el=>{
+                  const style=getComputedStyle(el),box=el.getBoundingClientRect(),icon=el.parentElement.querySelector('svg'),ib=icon.getBoundingClientRect();
+                  return {paddingLeft:style.paddingLeft,gap:box.left+parseFloat(style.borderLeftWidth)+parseFloat(style.paddingLeft)-ib.right,centerDelta:Math.abs((box.top+box.height/2)-(ib.top+ib.height/2)),pointerEvents:getComputedStyle(icon).pointerEvents,iconX:ib.left+ib.width/2,iconY:ib.top+ib.height/2,overflow:document.documentElement.scrollWidth>innerWidth+1};
+                });
+                if(layout.gap<8||layout.centerDelta>1||layout.pointerEvents!=='none'||layout.overflow)throw Error(JSON.stringify({viewport,mode,layout}));
+                await page.mouse.click(layout.iconX,layout.iconY);
+                if(!await input.evaluate(el=>document.activeElement===el))throw Error('Icon area did not focus email input');
+                await input.fill('aluno.mentoria@example.invalid');
+                if(await input.inputValue()!=='aluno.mentoria@example.invalid')throw Error('Typing failed');
+                await input.fill('');
+                await page.screenshot({path:`qa-reports/${viewport}-${mode}.png`,fullPage:true});
+                results.push({viewport,mode,...layout,iconClickFocus:true,emailTyping:true});
+              }
+              await page.close();
+            }
+            if(errors.length)throw Error(errors.join('\n'));
+          }finally{
+            await writeFile('qa-reports/browser.json',JSON.stringify({results,errors,backend:'No real authentication or account mutations; actual component and CSS'},null,2));
+            await browser.close();await server.close();
+          }
+          JS
+      - name: Preserve only tested app files on QA branch
+        run: |
+          test "$GITHUB_REF_NAME" = 'qa/login-email-spacing-20261114'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/components/portal/AccessScreen.tsx src/test/access-email-layout.test.tsx
+          git diff --cached --check
+          git diff --cached --stat | tee qa-reports/diff-stat.txt
+          git commit -m 'fix: reservar espaco do icone no campo de email'
+          git push origin HEAD:"$GITHUB_REF_NAME"
+          git rev-parse HEAD > qa-reports/tested-commit.txt
+          git ls-tree HEAD src/components/portal/AccessScreen.tsx src/test/access-email-layout.test.tsx > qa-reports/tested-blobs.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: email-spacing-evidence
+          path: qa-reports/
+          retention-days: 7
