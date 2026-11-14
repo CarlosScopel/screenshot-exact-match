@@ -205,3 +205,7 @@
 .portal-outline:hover:not(:disabled) { background: var(--accent); border-color: var(--primary); }
 .portal-button:disabled, .portal-outline:disabled { opacity: .5; cursor: not-allowed; }
 .portal-button:focus-visible, .portal-outline:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+
+#lovable-badge {
+  display: none !important;
+}
