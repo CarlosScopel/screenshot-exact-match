@@ -1,0 +1,19 @@
+name: Stop unprovisioned validation safely
+on:
+  push:
+    branches: [qa/launch-live-20261114-final]
+    paths: [.github/workflows/qa-stop-unprovisioned.yml]
+permissions:
+  actions: write
+jobs:
+  stop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Cancel only the unprovisioned QA run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          code=$(curl -sS -o /tmp/cancel-result.json -w '%{http_code}' -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" https://api.github.com/repos/CarlosScopel/screenshot-exact-match/actions/runs/43623463733/cancel)
+          echo "Cancellation HTTP status: $code"
+          test "$code" = 202 || test "$code" = 409
