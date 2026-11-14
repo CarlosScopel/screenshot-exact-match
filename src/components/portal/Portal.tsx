@@ -278,11 +278,6 @@ function Portal() {
         logo={settings?.logo_url}
         image={settings?.login_image_url}
         onSuccess={() => void refresh()}
-        onDemo={() => {
-          setDemoData(createDemoPortalData());
-          setDemo(true);
-          setPage("home");
-        }}
       />
     );
   if (!demo && !isAdmin && session && (!membership.account || membership.error))

@@ -9,10 +9,8 @@ import {
   GraduationCap,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { getSetupState, requestMenteeAccess } from "@/lib/admin.functions";
-import { requestOwnerAccess } from "@/lib/owner.functions";
+import { requestMenteeAccess } from "@/lib/admin.functions";
 import { useMedia } from "@/lib/media";
-import { DEMO_EMAIL, DEMO_PASSWORD } from "@/lib/demo";
 import { authRedirectUrl } from "@/lib/auth-redirect";
 import { Button } from "@/components/ui/button";
 import { INVALID_RECOVERY_LINK, saveRecoveredPassword, validatePasswordRecovery } from "@/lib/password-recovery";
@@ -25,7 +23,6 @@ export function AccessScreen({
   image,
   forceRecovery = false,
   onSuccess,
-  onDemo,
 }: {
   name: string;
   title?: string | undefined;
@@ -34,11 +31,10 @@ export function AccessScreen({
   image?: string | null | undefined;
   forceRecovery?: boolean;
   onSuccess: () => void;
-  onDemo?: () => void;
 }) {
   const coverUrl = useMedia(image);
   const logoUrl = useMedia(logo);
-  const [mode, setMode] = useState<"login" | "forgot" | "setup" | "recovery" | "request">(
+  const [mode, setMode] = useState<"login" | "forgot" | "recovery" | "request">(
     forceRecovery ? "recovery" : "login",
   );
   const [checking, setChecking] = useState(true);
@@ -55,32 +51,26 @@ export function AccessScreen({
         : null;
     const recovery = forceRecovery || token === "invite" || token === "recovery";
     if (recovery) setMode("recovery");
-    const check = recovery
-      ? validatePasswordRecovery(window.location.search, window.location.hash).then((valid) => {
+    if (recovery) {
+      validatePasswordRecovery(window.location.search, window.location.hash)
+        .then((valid) => {
           if (alive && !valid) {
             setInvalidRecovery(true);
             setFeedback(INVALID_RECOVERY_LINK);
           }
-          return { hasAdmin: true };
         })
-      : getSetupState();
-    check
-      .then((state) => {
-        if (
-          alive &&
-          !state.hasAdmin &&
-          !forceRecovery &&
-          token !== "recovery" &&
-          token !== "invite"
-        )
-          setMode("setup");
-      })
-      .catch(() => {
-        if (alive) setFeedback("Não foi possível verificar a configuração do servidor.");
-      })
-      .finally(() => {
-        if (alive) setChecking(false);
-      });
+        .catch(() => {
+          if (alive) {
+            setInvalidRecovery(true);
+            setFeedback(INVALID_RECOVERY_LINK);
+          }
+        })
+        .finally(() => {
+          if (alive) setChecking(false);
+        });
+    } else {
+      setChecking(false);
+    }
     return () => {
       alive = false;
     };
@@ -92,12 +82,7 @@ export function AccessScreen({
     setFeedback("");
     setBusy(true);
     try {
-      if (mode === "setup") {
-        await requestOwnerAccess({ data: { name: form.name, email: form.email } });
-        setFeedback(
-          "Link enviado ao e-mail autorizado. Abra-o para confirmar sua identidade e ativar a administração.",
-        );
-      } else if (mode === "request") {
+      if (mode === "request") {
         await requestMenteeAccess({ data: { name: form.name, email: form.email } });
         setFeedback(
           "Solicitação recebida! Aguarde a aprovação do administrador. Se aprovada, você receberá um e-mail para definir sua senha.",
@@ -113,13 +98,6 @@ export function AccessScreen({
         await saveRecoveredPassword(form.password);
         window.history.replaceState({}, "", window.location.pathname);
         onSuccess();
-      } else if (
-        onDemo &&
-        form.email.trim().toLowerCase() === DEMO_EMAIL &&
-        form.password === DEMO_PASSWORD
-      ) {
-        // Demonstration does not authenticate, create a session, or query private data.
-        onDemo();
       } else {
         const { error } = await supabase.auth.signInWithPassword({
           email: form.email,
@@ -189,9 +167,7 @@ export function AccessScreen({
             <LockKeyhole className="size-6" />
           </div>
           <h2 className="text-3xl font-semibold mb-2">
-            {mode === "setup"
-              ? "Acesso do administrador"
-              : mode === "forgot"
+            {mode === "forgot"
                 ? "Recuperar acesso"
                 : mode === "recovery"
                   ? "Definir senha"
@@ -200,9 +176,7 @@ export function AccessScreen({
                     : title || "Bem-vindo de volta"}
           </h2>
           <p className="text-muted-foreground mb-9">
-            {mode === "setup"
-              ? "Informe seu nome e o e-mail autorizado. A administração só será liberada após a confirmação pelo link."
-              : mode === "forgot"
+            {mode === "forgot"
                 ? "Enviaremos um link para seu e-mail cadastrado."
                 : mode === "recovery"
                   ? "Escolha uma senha segura para sua conta."
@@ -216,7 +190,7 @@ export function AccessScreen({
             </div>
           ) : (
             <form onSubmit={submit} className="space-y-5">
-              {(mode === "setup" || mode === "request") && (
+              {mode === "request" && (
                 <label className="block text-sm font-medium">
                   Seu nome
                   <input
@@ -230,7 +204,6 @@ export function AccessScreen({
                 </label>
               )}
               {(mode === "login" ||
-                mode === "setup" ||
                 mode === "forgot" ||
                 mode === "request") && (
                 <label className="block text-sm font-medium">
@@ -297,9 +270,7 @@ export function AccessScreen({
                 </Button>
               ) : <Button type="submit" disabled={busy} className="portal-button w-full justify-center py-3">
                 {busy && <LoaderCircle className="size-4 animate-spin" />}
-                {mode === "setup"
-                  ? "Enviar link de administrador"
-                  : mode === "forgot"
+                {mode === "forgot"
                     ? "Enviar instruções"
                     : mode === "recovery"
                       ? "Salvar nova senha"
@@ -325,48 +296,6 @@ export function AccessScreen({
                   type="button"
                   className="block text-sm text-primary hover:underline"
                   onClick={() => {
-                    setMode("setup");
-                    setFeedback("");
-                  }}
-                >
-                  Ativar acesso de administrador
-                </button>
-              )}
-              {mode === "setup" && onDemo && (
-                <button
-                  type="button"
-                  className="portal-outline w-full"
-                  onClick={() => {
-                    setMode("login");
-                    setFeedback("");
-                  }}
-                >
-                  Visualizar como mentorado de teste
-                </button>
-              )}
-              {mode === "login" && onDemo && (
-                <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-2">
-                  <p className="text-sm font-semibold">Visualizar como mentorado</p>
-                  <p className="text-xs text-muted-foreground">
-                    Acesso de demonstração, com conteúdos fictícios e sem acesso ao banco real.
-                  </p>
-                  <button
-                    type="button"
-                    className="portal-outline w-full"
-                    onClick={() => {
-                      setForm((f) => ({ ...f, email: DEMO_EMAIL, password: DEMO_PASSWORD }));
-                      setFeedback("");
-                    }}
-                  >
-                    Preencher login de teste
-                  </button>
-                </div>
-              )}
-              {mode === "login" && (
-                <button
-                  type="button"
-                  className="block text-sm text-primary hover:underline"
-                  onClick={() => {
                     setMode("request");
                     setFeedback("");
                   }}
@@ -374,7 +303,7 @@ export function AccessScreen({
                   Quero fazer parte de A ORDEM
                 </button>
               )}
-              {(mode === "forgot" || mode === "request" || mode === "setup") && (
+              {(mode === "forgot" || mode === "request") && (
                 <button
                   type="button"
                   className="text-sm text-primary hover:underline"
