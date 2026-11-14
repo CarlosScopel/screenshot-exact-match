@@ -43,7 +43,7 @@ type Go = (view: View, id?: string) => void;
 type Field = {
   key: string;
   label: string;
-  type?: "text" | "textarea" | "select" | "number" | "url" | "date" | "datetime-local" | "color";
+  type?: "text" | "textarea" | "select" | "number" | "url" | "date" | "datetime-local" | "color" | "image";
   options?: string[];
   required?: boolean;
 };
@@ -59,7 +59,7 @@ type AdminPageProps = {
 const trainingFields: Field[] = [
   { key: "title", label: "Título", required: true },
   { key: "description", label: "Descrição", type: "textarea" },
-  { key: "cover_url", label: "Capa (URL HTTPS)", type: "url" },
+  { key: "cover_url", label: "Imagem de capa", type: "image" },
   { key: "status", label: "Status", type: "select", options: ["draft", "published"] },
   { key: "position", label: "Ordem", type: "number" },
 ];
@@ -74,7 +74,7 @@ const lessonFields: Field[] = [
   { key: "description", label: "Descrição", type: "textarea" },
   { key: "content", label: "Conteúdo (Markdown)", type: "textarea" },
   { key: "video_url", label: "URL HTTPS do vídeo", type: "url" },
-  { key: "thumbnail_url", label: "Capa (URL HTTPS)", type: "url" },
+  { key: "thumbnail_url", label: "Imagem de capa da aula", type: "image" },
   { key: "duration_minutes", label: "Duração em minutos", type: "number" },
   { key: "available_at", label: "Disponível a partir de", type: "datetime-local" },
   { key: "status", label: "Status", type: "select", options: ["draft", "published"] },
@@ -174,6 +174,10 @@ function EditPanel({
       const form = new FormData(e.currentTarget);
       const payload: Record<string, unknown> = { ...(extra || {}) };
       for (const field of fields) {
+        if (field.type === "image") {
+          payload[field.key] = initial?.[field.key] ?? null;
+          continue;
+        }
         const raw = String(form.get(field.key) || "");
         payload[field.key] = !raw
           ? field.type === "number"
@@ -246,6 +250,11 @@ function EditPanel({
                 required={f.required}
                 defaultValue={String(initial?.[f.key] ?? "")}
               />
+            ) : f.type === "image" ? (
+              <ImagePicker
+                name={f.key === "cover_url" ? "cover_file" : "thumbnail_file"}
+                hasCurrent={Boolean(initial?.[f.key])}
+              />
             ) : f.type === "select" ? (
               <select
                 name={f.key}
@@ -284,23 +293,6 @@ function EditPanel({
             )}
           </label>
         ))}
-        {fields.some((f) => f.key === "cover_url") && (
-          <label className="text-sm block">
-            Enviar imagem de capa
-            <input className="portal-input mt-2" type="file" name="cover_file" accept="image/*" />
-          </label>
-        )}
-        {fields.some((f) => f.key === "thumbnail_url") && (
-          <label className="text-sm block">
-            Enviar thumbnail
-            <input
-              className="portal-input mt-2"
-              type="file"
-              name="thumbnail_file"
-              accept="image/*"
-            />
-          </label>
-        )}
         <div className="md:col-span-2">
           <button disabled={busy} className="portal-button">
             <Save className="size-4" />
@@ -634,7 +626,11 @@ export function AdminPage({ page, data, reload, go, settings, refreshSettings }:
           ))}
           {!items.length && (
             <p className="p-10 text-sm text-muted-foreground text-center">
-              Nenhum conteúdo cadastrado neste nível.
+              {module
+                ? "Nenhuma aula criada aqui ainda. Clique em Nova aula para criar a primeira."
+                : training
+                  ? "Este treinamento ainda não tem módulos. Clique em Novo módulo para criar o primeiro."
+                  : "Você ainda não criou nenhum treinamento. Clique em Novo treinamento para começar."}
             </p>
           )}
         </div>
@@ -1485,5 +1481,26 @@ function SettingsEditor({
         </div>
       </form>
     </>
+  );
+}
+
+function ImagePicker({ name, hasCurrent }: { name: string; hasCurrent: boolean }) {
+  const [fileName, setFileName] = useState("");
+  return (
+    <span className="mt-2 flex items-center gap-3 flex-wrap">
+      <span className="portal-outline">
+        Escolher imagem do computador
+        <input
+          type="file"
+          name={name}
+          accept="image/*"
+          className="sr-only"
+          onChange={(e) => setFileName(e.target.files?.[0]?.name ?? "")}
+        />
+      </span>
+      <span className="text-xs font-normal text-muted-foreground">
+        {fileName || (hasCurrent ? "Imagem atual mantida" : "Nenhuma imagem escolhida")}
+      </span>
+    </span>
   );
 }
