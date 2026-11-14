@@ -13,7 +13,11 @@ import { requestMenteeAccess } from "@/lib/admin.functions";
 import { useMedia } from "@/lib/media";
 import { authRedirectUrl } from "@/lib/auth-redirect";
 import { Button } from "@/components/ui/button";
-import { INVALID_RECOVERY_LINK, saveRecoveredPassword, validatePasswordRecovery } from "@/lib/password-recovery";
+import {
+  INVALID_RECOVERY_LINK,
+  saveRecoveredPassword,
+  validatePasswordRecovery,
+} from "@/lib/password-recovery";
 
 export function AccessScreen({
   name,
@@ -168,21 +172,21 @@ export function AccessScreen({
           </div>
           <h2 className="text-3xl font-semibold mb-2">
             {mode === "forgot"
-                ? "Recuperar acesso"
-                : mode === "recovery"
-                  ? "Definir senha"
-                  : mode === "request"
-                    ? "Solicite sua entrada"
-                    : title || "Bem-vindo de volta"}
+              ? "Recuperar acesso"
+              : mode === "recovery"
+                ? "Definir senha"
+                : mode === "request"
+                  ? "Solicite sua entrada"
+                  : title || "Bem-vindo de volta"}
           </h2>
           <p className="text-muted-foreground mb-9">
             {mode === "forgot"
-                ? "Enviaremos um link para seu e-mail cadastrado."
-                : mode === "recovery"
-                  ? "Escolha uma senha segura para sua conta."
-                  : mode === "request"
-                    ? "Informe seus dados. Sua entrada em A ORDEM depende de aprovação."
-                    : subtitle || "Acesse seu ambiente exclusivo de mentoria."}
+              ? "Enviaremos um link para seu e-mail cadastrado."
+              : mode === "recovery"
+                ? "Escolha uma senha segura para sua conta."
+                : mode === "request"
+                  ? "Informe seus dados. Sua entrada em A ORDEM depende de aprovação."
+                  : subtitle || "Acesse seu ambiente exclusivo de mentoria."}
           </p>
           {checking ? (
             <div className="text-muted-foreground flex gap-2 items-center">
@@ -203,9 +207,7 @@ export function AccessScreen({
                   />
                 </label>
               )}
-              {(mode === "login" ||
-                mode === "forgot" ||
-                mode === "request") && (
+              {(mode === "login" || mode === "forgot" || mode === "request") && (
                 <label className="block text-sm font-medium">
                   E-mail
                   <div className="relative mt-2">
@@ -264,25 +266,35 @@ export function AccessScreen({
                 </div>
               )}
               {invalidRecovery && mode === "recovery" ? (
-                <Button type="button" className="w-full" onClick={() => {
-                  window.history.replaceState({}, "", window.location.pathname);
-                  setMode("forgot");
-                  setInvalidRecovery(false);
-                  setFeedback("");
-                }}>
+                <Button
+                  type="button"
+                  className="w-full"
+                  onClick={() => {
+                    window.history.replaceState({}, "", window.location.pathname);
+                    setMode("forgot");
+                    setInvalidRecovery(false);
+                    setFeedback("");
+                  }}
+                >
                   <Mail /> Solicitar novo link
                 </Button>
-              ) : <Button type="submit" disabled={busy} className="portal-button w-full justify-center py-3">
-                {busy && <LoaderCircle className="size-4 animate-spin" />}
-                {mode === "forgot"
+              ) : (
+                <Button
+                  type="submit"
+                  disabled={busy}
+                  className="portal-button w-full justify-center py-3"
+                >
+                  {busy && <LoaderCircle className="size-4 animate-spin" />}
+                  {mode === "forgot"
                     ? "Enviar instruções"
                     : mode === "recovery"
                       ? "Salvar nova senha"
                       : mode === "request"
                         ? "Solicitar aprovação"
                         : "Entrar na plataforma"}
-                <ArrowRight className="size-4" />
-              </Button>}
+                  <ArrowRight className="size-4" />
+                </Button>
+              )}
               {mode === "login" && (
                 <button
                   type="button"

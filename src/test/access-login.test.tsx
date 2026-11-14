@@ -2,7 +2,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ signInWithPassword: vi.fn(), requestMenteeAccess: vi.fn() }));
-vi.mock("@/integrations/supabase/client", () => ({ supabase: { auth: { signInWithPassword: mocks.signInWithPassword } } }));
+vi.mock("@/integrations/supabase/client", () => ({
+  supabase: { auth: { signInWithPassword: mocks.signInWithPassword } },
+}));
 vi.mock("@/lib/admin.functions", () => ({ requestMenteeAccess: mocks.requestMenteeAccess }));
 vi.mock("@/lib/media", () => ({ useMedia: () => null }));
 import { AccessScreen } from "@/components/portal/AccessScreen";
@@ -19,11 +21,20 @@ describe("Real account entry", () => {
     mocks.signInWithPassword.mockResolvedValue({ error: new Error("Invalid login credentials") });
     const onSuccess = vi.fn();
     render(<AccessScreen name="A ORDEM" onSuccess={onSuccess} />);
-    fireEvent.change(await screen.findByRole("textbox", { name: "E-mail" }), { target: { value: DEMO_EMAIL } });
+    fireEvent.change(await screen.findByRole("textbox", { name: "E-mail" }), {
+      target: { value: DEMO_EMAIL },
+    });
     fireEvent.change(screen.getByLabelText("Senha"), { target: { value: DEMO_PASSWORD } });
     fireEvent.click(screen.getByRole("button", { name: "Entrar na plataforma" }));
-    await waitFor(() => expect(mocks.signInWithPassword).toHaveBeenCalledWith({ email: DEMO_EMAIL, password: DEMO_PASSWORD }));
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Invalid login credentials"));
+    await waitFor(() =>
+      expect(mocks.signInWithPassword).toHaveBeenCalledWith({
+        email: DEMO_EMAIL,
+        password: DEMO_PASSWORD,
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Invalid login credentials"),
+    );
     expect(onSuccess).not.toHaveBeenCalled();
   });
 
@@ -31,10 +42,15 @@ describe("Real account entry", () => {
     mocks.signInWithPassword.mockResolvedValue({ error: null });
     const onSuccess = vi.fn();
     render(<AccessScreen name="A ORDEM" onSuccess={onSuccess} />);
-    fireEvent.change(await screen.findByRole("textbox", { name: "E-mail" }), { target: { value: "member@example.test" } });
+    fireEvent.change(await screen.findByRole("textbox", { name: "E-mail" }), {
+      target: { value: "member@example.test" },
+    });
     fireEvent.change(screen.getByLabelText("Senha"), { target: { value: "account-password" } });
     fireEvent.click(screen.getByRole("button", { name: "Entrar na plataforma" }));
     await waitFor(() => expect(onSuccess).toHaveBeenCalledOnce());
-    expect(mocks.signInWithPassword).toHaveBeenCalledWith({ email: "member@example.test", password: "account-password" });
+    expect(mocks.signInWithPassword).toHaveBeenCalledWith({
+      email: "member@example.test",
+      password: "account-password",
+    });
   });
 });
