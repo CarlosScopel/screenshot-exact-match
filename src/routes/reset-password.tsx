@@ -6,7 +6,10 @@ export const Route = createFileRoute("/reset-password")({
   head: () => ({
     meta: [
       { title: "Definir senha | A ORDEM" },
-      { name: "description", content: "Recupere seu acesso à mentoria A ORDEM e defina uma nova senha." },
+      {
+        name: "description",
+        content: "Recupere seu acesso à mentoria A ORDEM e defina uma nova senha.",
+      },
       { property: "og:title", content: "Definir senha | A ORDEM" },
       { property: "og:description", content: "Recuperação segura de acesso à mentoria A ORDEM." },
       { property: "og:type", content: "website" },

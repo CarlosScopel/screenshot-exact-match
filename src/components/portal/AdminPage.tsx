@@ -43,7 +43,16 @@ type Go = (view: View, id?: string) => void;
 type Field = {
   key: string;
   label: string;
-  type?: "text" | "textarea" | "select" | "number" | "url" | "date" | "datetime-local" | "color" | "image";
+  type?:
+    | "text"
+    | "textarea"
+    | "select"
+    | "number"
+    | "url"
+    | "date"
+    | "datetime-local"
+    | "color"
+    | "image";
   options?: string[];
   required?: boolean;
 };

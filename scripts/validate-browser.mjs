@@ -2,28 +2,25 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
-// The workflow serves the unchanged Cloudflare production build with Wrangler.
 const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE_PATH).href);
 const directory = "qa-reports";
 await mkdir(directory, { recursive: true });
+const base = process.env.QA_BASE_URL || "http://127.0.0.1:4173";
+const backend = process.env.VITE_SUPABASE_URL?.replace(/\/$/, "");
 const report = {
   commit: process.env.GITHUB_SHA,
+  scope:
+    "Public production-build routes; authenticated account journeys require separate integration tests.",
   tests: [],
-  limitations: [
-    "No real account credentials or service-role keys are used. Email delivery, admin mutations and authenticated production RLS require separate integration validation.",
-  ],
   pageErrors: [],
-  networkErrors: [],
-  hostingTelemetry: [],
+  unexpectedWrites: [],
   authSettings: null,
 };
-const base = process.env.QA_BASE_URL || "http://127.0.0.1:4173";
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let browser;
 let currentPage;
-async function check(name, action) {
+async function check(name, task) {
   try {
-    await action();
+    await task();
     report.tests.push({ name, status: "passed" });
     console.log(`PASS ${name}`);
   } catch (error) {
@@ -31,177 +28,153 @@ async function check(name, action) {
     throw error;
   }
 }
-async function enterDemo(page) {
-  await page
-    .getByRole("button", { name: "Preencher login de teste", exact: true })
-    .waitFor({ timeout: 30000 });
-  await page.getByRole("button", { name: "Preencher login de teste", exact: true }).click();
-  await page.getByRole("button", { name: "Entrar na plataforma", exact: true }).click();
-  await page.getByText("Prévia de mentorado", { exact: true }).waitFor();
-}
-async function navigate(page, label, mobile = false) {
-  if (mobile) await page.getByRole("button", { name: "Abrir menu", exact: true }).click();
-  await page.locator("nav").getByRole("button", { name: label, exact: true }).click();
+async function fits(page) {
+  const size = await page.evaluate(() => ({
+    viewport: innerWidth,
+    document: document.documentElement.scrollWidth,
+  }));
+  assert.ok(size.document <= size.viewport + 1, JSON.stringify(size));
 }
 try {
-  if (process.env.VITE_SUPABASE_URL && process.env.VITE_SUPABASE_PUBLISHABLE_KEY) {
-    try {
-      const response = await fetch(
-        `${process.env.VITE_SUPABASE_URL.replace(/\/$/, "")}/auth/v1/settings`,
-        {
-          headers: { apikey: process.env.VITE_SUPABASE_PUBLISHABLE_KEY },
-          signal: AbortSignal.timeout(15000),
-        },
-      );
-      const result = await response.json();
-      report.authSettings = {
-        status: response.status,
-        disable_signup: result.disable_signup,
-        mailer_autoconfirm: result.mailer_autoconfirm,
-        email_provider: result.external?.email,
-      };
-    } catch (error) {
-      report.authSettings = { error: String(error) };
-    }
-  }
   await check("production-worker-starts", async () => {
-    for (let attempt = 0; attempt < 60; attempt += 1) {
+    for (let attempt = 0; attempt < 60; attempt++) {
       try {
         const response = await fetch(base, { signal: AbortSignal.timeout(1500) });
         if (response.ok) return;
       } catch {
-        /* Starting worker. */
+        /* Worker starting. */
       }
-      await wait(500);
+      await new Promise((resolve) => setTimeout(resolve, 500));
     }
-    throw new Error("Production worker did not respond successfully; see server.log");
+    throw new Error("Production worker did not start; inspect server.log.");
   });
+  if (backend && process.env.VITE_SUPABASE_PUBLISHABLE_KEY) {
+    await check("auth-email-and-approval-configuration", async () => {
+      const response = await fetch(`${backend}/auth/v1/settings`, {
+        headers: { apikey: process.env.VITE_SUPABASE_PUBLISHABLE_KEY },
+        signal: AbortSignal.timeout(15000),
+      });
+      assert.equal(response.status, 200);
+      const settings = await response.json();
+      report.authSettings = {
+        disable_signup: settings.disable_signup,
+        mailer_autoconfirm: settings.mailer_autoconfirm,
+        email_provider: settings.external?.email,
+      };
+      assert.equal(settings.disable_signup, true);
+      assert.equal(settings.mailer_autoconfirm, false);
+      assert.equal(settings.external?.email, true);
+    });
+  }
   browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
-  const page = await context.newPage();
-  page.setDefaultTimeout(15000);
-  currentPage = page;
-  page.on("pageerror", (error) => report.pageErrors.push(String(error)));
-  page.on("requestfailed", (request) =>
-    report.networkErrors.push({
-      path: new URL(request.url()).pathname,
-      failure: request.failure()?.errorText,
-    }),
+  for (const mobile of [false, true]) {
+    const label = mobile ? "mobile" : "desktop";
+    const context = await browser.newContext({
+      viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 1000 },
+      ...(mobile ? { isMobile: true, hasTouch: true } : {}),
+    });
+    const page = await context.newPage();
+    currentPage = page;
+    page.setDefaultTimeout(15000);
+    page.on("pageerror", (error) => report.pageErrors.push(String(error)));
+    page.on("request", (request) => {
+      if (!["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) return;
+      const url = new URL(request.url());
+      const telemetry =
+        request.method() === "POST" &&
+        url.origin === new URL(base).origin &&
+        url.pathname === "/__l5e/trackevents";
+      const brandingRead =
+        request.method() === "POST" &&
+        backend &&
+        url.href === `${backend}/rest/v1/rpc/get_public_branding` &&
+        ["{}", "", null].includes(request.postData());
+      if (!telemetry && !brandingRead)
+        report.unexpectedWrites.push({ method: request.method(), path: url.pathname });
+    });
+    await check(`${label}-login-without-demo-or-owner-shortcuts`, async () => {
+      await page.goto(base, { waitUntil: "domcontentloaded" });
+      await page.getByRole("button", { name: "Entrar na plataforma", exact: true }).waitFor();
+      assert.equal(
+        await page.getByRole("button", { name: "Preencher login de teste", exact: true }).count(),
+        0,
+      );
+      assert.equal(
+        await page
+          .getByRole("button", { name: "Ativar acesso de administrador", exact: true })
+          .count(),
+        0,
+      );
+      assert.equal(await page.locator("aside nav").count(), 0);
+      await fits(page);
+      await page.screenshot({ path: `${directory}/${label}-login.png`, fullPage: true });
+    });
+    await check(`${label}-email-icon-spacing-and-form-validation`, async () => {
+      const input = page.getByRole("textbox", { name: "E-mail", exact: true });
+      const gap = await input.evaluate((el) => {
+        const icon = el.parentElement.querySelector("svg");
+        return (
+          el.getBoundingClientRect().left +
+          parseFloat(getComputedStyle(el).paddingLeft) -
+          icon.getBoundingClientRect().right
+        );
+      });
+      assert.ok(gap >= 8, `Text/icon gap: ${gap}`);
+      await input.fill("invalid-email");
+      assert.equal(await input.evaluate((el) => el.checkValidity()), false);
+      await input.fill("qa@example.invalid");
+      assert.equal(await input.evaluate((el) => el.checkValidity()), true);
+      assert.equal(
+        await page.getByLabel("Senha", { exact: true }).getAttribute("type"),
+        "password",
+      );
+    });
+    await check(`${label}-request-access-form`, async () => {
+      await page.getByRole("button", { name: "Quero fazer parte de A ORDEM", exact: true }).click();
+      await page.getByRole("heading", { name: "Solicite sua entrada", exact: true }).waitFor();
+      await page.getByLabel("Seu nome", { exact: true }).fill("QA visual sem envio");
+      await page.getByRole("textbox", { name: "E-mail", exact: true }).fill("qa@example.invalid");
+      assert.equal(await page.locator("form").evaluate((el) => el.checkValidity()), true);
+      assert.equal(await page.locator("input[type=password]").count(), 0);
+      await fits(page);
+      await page.screenshot({ path: `${directory}/${label}-request.png`, fullPage: true });
+      await page.getByRole("button", { name: "Voltar ao login", exact: true }).click();
+    });
+    await check(`${label}-recovery-request-form-without-sending-mail`, async () => {
+      await page.getByRole("button", { name: "Esqueceu sua senha?", exact: true }).click();
+      await page.getByRole("heading", { name: "Recuperar acesso", exact: true }).waitFor();
+      await page.getByRole("textbox", { name: "E-mail", exact: true }).fill("qa@example.invalid");
+      await page.getByRole("button", { name: "Enviar instruções", exact: true }).waitFor();
+      await fits(page);
+    });
+    await check(`${label}-invalid-recovery-link-cannot-set-password`, async () => {
+      await page.goto(`${base}/reset-password?error=access_denied&type=recovery`, {
+        waitUntil: "domcontentloaded",
+      });
+      await page
+        .getByText(
+          "Este link é inválido, expirou ou já foi utilizado. Solicite um novo link para definir sua senha.",
+          { exact: true },
+        )
+        .waitFor();
+      assert.equal(await page.locator("input[type=password]").count(), 0);
+      await page.getByRole("button", { name: "Solicitar novo link", exact: true }).click();
+      await page.getByRole("heading", { name: "Recuperar acesso", exact: true }).waitFor();
+      await fits(page);
+    });
+    await check(`${label}-not-found-route`, async () => {
+      await page.goto(`${base}/qa-validation-not-found`, { waitUntil: "domcontentloaded" });
+      await page.getByRole("heading", { name: "Página não encontrada", exact: true }).waitFor();
+      await page.getByRole("link", { name: "Voltar ao início", exact: true }).click();
+      await page.getByRole("button", { name: "Entrar na plataforma", exact: true }).waitFor();
+    });
+    await context.close();
+    currentPage = undefined;
+  }
+  await check("public-checks-do-not-mutate-backend-or-send-emails", async () =>
+    assert.deepEqual(report.unexpectedWrites, []),
   );
-  await check("desktop-login-loads", async () => {
-    await page.goto(base, { waitUntil: "domcontentloaded" });
-    await page
-      .getByRole("button", { name: "Preencher login de teste", exact: true })
-      .waitFor({ timeout: 30000 });
-    await page.screenshot({ path: `${directory}/desktop-login.png`, fullPage: true });
-  });
-  await check("demo-login-enters-learner-dashboard", () => enterDemo(page));
-  const writes = [];
-  page.on("request", (request) => {
-    if (!["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) return;
-    const url = new URL(request.url());
-    const entry = { method: request.method(), path: url.pathname };
-    // The published host injects analytics. Keep those separate from app mutations,
-    // but do not exempt any Supabase request, server function, or unknown endpoint.
-    if (
-      entry.method === "POST" &&
-      url.origin === new URL(base).origin &&
-      entry.path === "/__l5e/trackevents"
-    ) {
-      report.hostingTelemetry.push(entry);
-    } else {
-      writes.push(entry);
-    }
-  });
-  await check("desktop-dashboard", async () => {
-    await page.getByRole("heading", { name: /Alex/ }).waitFor();
-    await page.screenshot({ path: `${directory}/desktop-dashboard.png`, fullPage: true });
-  });
-  await check("training-modules-and-lesson", async () => {
-    await navigate(page, "Treinamentos");
-    await page.getByRole("button", { name: /Fundamentos da Estratégia/ }).click();
-    await page.getByRole("heading", { name: "Fundamentos da Estratégia", exact: true }).waitFor();
-    await page.getByRole("button", { name: "Organizando sua Jornada", exact: true }).click();
-    await page.getByRole("heading", { name: "Organizando sua Jornada", exact: true }).waitFor();
-    assert.equal(await page.locator("video[controls]").count(), 1);
-  });
-  await check("lesson-progress-and-private-notes-local-demo", async () => {
-    await page.getByRole("button", { name: "Marcar como concluída", exact: true }).click();
-    await page.getByRole("button", { name: "Desmarcar conclusão", exact: true }).waitFor();
-    await page
-      .getByPlaceholder("Anotações privadas desta aula...")
-      .fill("Anotação temporária da validação automatizada.");
-    await page.getByRole("button", { name: "Salvar anotação", exact: true }).click();
-    await page.getByText("Anotação salva apenas nesta demonstração.", { exact: true }).waitFor();
-  });
-  await check("library-article", async () => {
-    await navigate(page, "Biblioteca");
-    await page.getByText("Ler artigo", { exact: true }).first().click();
-    await page.getByRole("heading", { name: "Checklist inicial", exact: true }).waitFor();
-  });
-  await check("tools-no-fake-active-integration", async () => {
-    await navigate(page, "Ferramentas");
-    assert.equal(await page.getByText("Em breve", { exact: true }).count(), 2);
-    assert.equal(await page.getByRole("link", { name: /Abrir ferramenta/ }).count(), 0);
-  });
-  await check("announcements", async () => {
-    await navigate(page, "Comunicados");
-    await page.getByRole("heading", { name: "Bem-vindo à A ORDEM", exact: true }).waitFor();
-  });
-  await check("learner-profile-has-no-admin-controls", async () => {
-    await navigate(page, "Meu perfil");
-    await page.getByText("mentorado@demo.aordem", { exact: true }).last().waitFor();
-    assert.equal(
-      await page.getByRole("button", { name: "Abrir administração", exact: true }).count(),
-      0,
-    );
-  });
-  await check("theme-switch", async () => {
-    const before = await page.locator("html").evaluate((el) => el.classList.contains("light"));
-    await page.getByRole("button", { name: "Alternar tema", exact: true }).click();
-    assert.notEqual(
-      before,
-      await page.locator("html").evaluate((el) => el.classList.contains("light")),
-    );
-  });
-  await check("demo-has-no-backend-writes", async () => {
-    assert.deepEqual(writes, []);
-  });
-  await check("demo-logout", async () => {
-    await page.getByRole("button", { name: "Encerrar demonstração", exact: true }).click();
-    await page.getByRole("button", { name: "Preencher login de teste", exact: true }).waitFor();
-  });
-  await context.close();
-  currentPage = undefined;
-  const mobile = await browser.newContext({
-    viewport: { width: 390, height: 844 },
-    isMobile: true,
-    hasTouch: true,
-  });
-  const phone = await mobile.newPage();
-  phone.setDefaultTimeout(15000);
-  currentPage = phone;
-  phone.on("pageerror", (error) => report.pageErrors.push(String(error)));
-  await check("mobile-login-and-dashboard", async () => {
-    await phone.goto(base, { waitUntil: "domcontentloaded" });
-    await enterDemo(phone);
-    const width = await phone.evaluate(() => ({
-      viewport: window.innerWidth,
-      document: document.documentElement.scrollWidth,
-    }));
-    assert.ok(width.document <= width.viewport + 1, JSON.stringify(width));
-    await phone.screenshot({ path: `${directory}/mobile-dashboard.png`, fullPage: true });
-  });
-  await check("mobile-sidebar-and-library", async () => {
-    await navigate(phone, "Biblioteca", true);
-    await phone.getByRole("heading", { name: "Biblioteca", exact: true }).waitFor();
-    await phone.screenshot({ path: `${directory}/mobile-library.png`, fullPage: true });
-  });
-  await check("no-unhandled-browser-errors", async () => {
-    assert.deepEqual(report.pageErrors, []);
-  });
-  await mobile.close();
-  currentPage = undefined;
+  await check("no-unhandled-browser-errors", async () => assert.deepEqual(report.pageErrors, []));
 } catch (error) {
   report.error = String(error);
   if (currentPage && !currentPage.isClosed())

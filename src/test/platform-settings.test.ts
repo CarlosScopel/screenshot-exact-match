@@ -22,7 +22,10 @@ describe("Settings visibility", () => {
   });
 
   it("loads private settings through the authenticated RLS read", async () => {
-    mock.single.mockResolvedValue({ data: { id: 1, support_email: "support@example.test" }, error: null });
+    mock.single.mockResolvedValue({
+      data: { id: 1, support_email: "support@example.test" },
+      error: null,
+    });
     const result = await loadPlatformSettings(true);
     expect(mock.from).toHaveBeenCalledWith("platform_settings");
     expect(result?.support_email).toBe("support@example.test");
