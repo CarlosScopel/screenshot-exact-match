@@ -1,0 +1,70 @@
+name: QA complete integration with email provider
+on:
+  push:
+    branches: [qa/fullstack-release-20261114]
+    paths: [.github/workflows/qa-fullstack-provider.yml]
+permissions:
+  contents: read
+jobs:
+  fullstack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      QA_TOOLS: ${{ runner.temp }}/qa-tools
+      WRANGLER_SEND_METRICS: 'false'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - uses: supabase/setup-cli@v3
+        with:
+          version: v2.stable
+      - name: Read prior inspected setup and correct provider configuration only
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import yaml,os
+          steps=yaml.safe_load(Path('.github/workflows/qa-fullstack.yml').read_text())['jobs']['fullstack']['steps']
+          root=Path(os.environ['RUNNER_TEMP'])/'fullstack-steps';root.mkdir()
+          names=['Prepare isolated Supabase configuration','Start real local Auth Postgres Storage and SMTP capture','Apply repository schema only to disposable database','Install existing app and isolated browser tooling','Prepare end-to-end harness using official local Auth admin API','Build unmodified app against isolated services','Real authenticated complete journeys on Cloudflare runtime','Remove disposable services and all QA identities/files']
+          for i,name in enumerate(names):
+            text=next(x['run'] for x in steps if x.get('name')==name)
+            if i==0:
+              old="setting('auth.email','enable_signup','false')"
+              assert old in text
+              text=text.replace(old,"setting('auth.email','enable_signup','true')")
+            (root/f'{i}.sh').write_text('set -euo pipefail\n'+text)
+          PY
+      - name: Initialize local configuration with global signup disabled and email login enabled
+        run: bash "$RUNNER_TEMP/fullstack-steps/0.sh"
+      - name: Start actual Supabase local services
+        run: bash "$RUNNER_TEMP/fullstack-steps/1.sh"
+      - name: Apply actual schema in disposable local database
+        run: bash "$RUNNER_TEMP/fullstack-steps/2.sh"
+      - name: Install app browser and synthetic video generator
+        run: bash "$RUNNER_TEMP/fullstack-steps/3.sh"
+      - name: Prepare real integration journeys
+        run: bash "$RUNNER_TEMP/fullstack-steps/4.sh"
+      - name: Build unchanged application
+        run: bash "$RUNNER_TEMP/fullstack-steps/5.sh"
+      - name: Validate authenticated UI email storage and financial flows
+        run: bash "$RUNNER_TEMP/fullstack-steps/6.sh"
+      - name: Destroy only isolated stack
+        if: always()
+        run: bash "$RUNNER_TEMP/fullstack-steps/7.sh"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: isolated-fullstack-evidence
+          path: |
+            qa-reports/production.json
+            qa-reports/real-*.png
+            qa-reports/schema.log
+            qa-reports/build.log
+            qa-reports/stack.json
+          retention-days: 7
