@@ -1,0 +1,52 @@
+name: QA real release readiness complete
+on:
+  push:
+    branches: [qa/release-readiness-20261114]
+    paths: [.github/workflows/qa-release-real-retry.yml]
+permissions:
+  contents: write
+concurrency:
+  group: qa-real-release
+  cancel-in-progress: false
+jobs:
+  real:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Install isolated QA tooling
+        run: |
+          npm install --prefix "$RUNNER_TEMP/qa-tools" --no-save --package-lock=false playwright bcryptjs
+          node "$RUNNER_TEMP/qa-tools/node_modules/playwright/cli.js" install --with-deps chromium
+          sudo apt-get install -y ffmpeg > /tmp/qa-ffmpeg-install.log 2>&1
+      - name: Generate synthetic fixtures
+        env:
+          QA_TOOLS: ${{ runner.temp }}/qa-tools
+        run: |
+          mkdir -p qa-fixtures qa-reports
+          ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=black:s=320x180:d=5 -f lavfi -i anullsrc=r=44100:cl=mono -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac -movflags +faststart qa-fixtures/call.mp4
+          node --input-type=module <<'JS'
+          import {pathToFileURL} from 'node:url';
+          const {chromium}=await import(pathToFileURL(process.env.QA_TOOLS+'/node_modules/playwright/index.mjs'));
+          const b=await chromium.launch({headless:true});const p=await b.newPage({viewport:{width:600,height:300}});
+          await p.setContent('<main style="font:24px sans-serif;padding:30px"><h1>TESTE QA</h1><strong>SEM VALOR FINANCEIRO</strong><p>Arquivo fictício para validar anexos.</p></main>');
+          await p.screenshot({path:'qa-fixtures/sem-valor.png'});await b.close();
+          JS
+      - name: Run real production journeys
+        env:
+          QA_TOOLS: ${{ runner.temp }}/qa-tools
+        run: node --env-file=.env qa/production-validation.mjs 2>&1 | tee qa-reports/runner.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: real-production-validation
+          path: qa-reports/
+          retention-days: 7
