@@ -24,6 +24,16 @@ vi.mock("@/lib/mentorship-api", () => ({
   uploadPaymentReceipt: mock.upload,
   openPaymentReceipt: mock.open,
 }));
+vi.mock("@/lib/billing-observation", () => ({
+  BILLING_OBSERVATION_LIMIT: 5000,
+  getBillingObservation: vi.fn(async (userId: string) => ({
+    user_id: userId,
+    content: "",
+    revision: 0,
+    updated_at: null,
+  })),
+  saveBillingObservation: vi.fn(),
+}));
 const uid = "00000000-0000-4000-8000-000000000002";
 const pid = "00000000-0000-4000-8000-000000000101";
 const iid = "00000000-0000-4000-8000-000000000201";

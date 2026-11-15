@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { CalendarDays, CreditCard, FileCheck, LoaderCircle, Plus, Upload } from "lucide-react";
+import { BillingObservation } from "./BillingObservation";
 import { useMentorshipAccount } from "@/lib/use-mentorship";
 import {
   addCalendarMonths,
@@ -98,6 +99,7 @@ export function MentorshipPanel({ userId, admin = false, onChanged }: Props) {
           {notice}
         </p>
       )}
+      <BillingObservation userId={userId} admin={admin} />
       <div className="grid sm:grid-cols-3 gap-3">
         <Summary title="Valor contratado" amount={totals.total} />
         <Summary title="Pagamento confirmado" amount={totals.paid} />
