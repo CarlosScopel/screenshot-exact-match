@@ -10,6 +10,8 @@ import {
   LoaderCircle,
   LockKeyhole,
   NotebookPen,
+  Pencil,
+  Trash2,
   Play,
   RotateCw,
   Save,
@@ -28,6 +30,7 @@ import {
   type CallRecording,
 } from "@/lib/recordings";
 import { clearRecordingUpload, uploadRecordingFile } from "@/lib/recordings-upload";
+import { editExclusiveRecording, deleteExclusiveRecording } from "@/lib/content-admin.functions";
 
 const messageOf = (error: unknown) =>
   error instanceof Error ? error.message : "Não foi possível concluir a operação.";
@@ -41,6 +44,11 @@ export function RecordingsPanel({ userId, admin = false }: { userId: string; adm
   const [error, setError] = useState("");
   const [dirty, setDirty] = useState(false);
   const [speed, setSpeed] = useState("1");
+  const [editing, setEditing] = useState<CallRecording | null>(null);
+  const [mutationId, setMutationId] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadVersion, setUploadVersion] = useState(0);
+  const [managementNotice, setManagementNotice] = useState("");
   const request = useRef(0);
   const load = useCallback(async () => {
     const version = ++request.current;
@@ -62,6 +70,8 @@ export function RecordingsPanel({ userId, admin = false }: { userId: string; adm
   useEffect(() => {
     setSelected(null);
     setResume(null);
+    setEditing(null);
+    setManagementNotice("");
     setDirty(false);
     void load();
     return () => {
@@ -91,6 +101,31 @@ export function RecordingsPanel({ userId, admin = false }: { userId: string; adm
       return;
     setDirty(false);
     setSelected(recording);
+  };
+  const removeRecording = async (recording: CallRecording) => {
+    if (!admin || mutationId || uploading) return;
+    if (
+      !window.confirm(
+        `Excluir a gravação “${recording.title}”? O vídeo, as anotações e o progresso desta gravação serão apagados definitivamente. Os outros encontros e pagamentos não serão alterados.`,
+      )
+    )
+      return;
+    setMutationId(recording.id);
+    setManagementNotice("");
+    try {
+      await deleteExclusiveRecording({ data: { id: recording.id, userId } });
+      clearRecordingUpload(recording.file_path);
+      setRecordings((items) => items.filter((item) => item.id !== recording.id));
+      setSelected((item) => (item?.id === recording.id ? null : item));
+      setResume(null);
+      setEditing(null);
+      setUploadVersion((value) => value + 1);
+      setManagementNotice("Gravação excluída do espaço do mentorado.");
+    } catch (e) {
+      setManagementNotice(messageOf(e));
+    } finally {
+      setMutationId(null);
+    }
   };
   if (!admin)
     return (
@@ -261,7 +296,7 @@ export function RecordingsPanel({ userId, admin = false }: { userId: string; adm
       </div>
       {admin && (
         <RecordingUpload
-          key={resume?.id || "new"}
+          key={`${resume?.id || "new"}-${uploadVersion}`}
           userId={userId}
           resume={resume}
           onDone={async () => {
@@ -269,6 +304,8 @@ export function RecordingsPanel({ userId, admin = false }: { userId: string; adm
             await load();
           }}
           onRefresh={load}
+          onBusyChange={setUploading}
+          disabled={!!mutationId || !!editing}
         />
       )}
       {error && (
@@ -292,6 +329,11 @@ export function RecordingsPanel({ userId, admin = false }: { userId: string; adm
             : "Suas gravações aparecerão aqui quando forem disponibilizadas pelo administrador."}
         </div>
       )}
+      {managementNotice && (
+        <p role="status" className="surface p-4 text-sm">
+          {managementNotice}
+        </p>
+      )}
       {!!recordings.length && (
         <div className="grid gap-3 sm:grid-cols-2">
           {recordings.map((recording) => (
@@ -300,6 +342,8 @@ export function RecordingsPanel({ userId, admin = false }: { userId: string; adm
                 "surface p-4 min-w-0 " + (selected?.id === recording.id ? "border-primary/50" : "")
               }
               key={recording.id}
+              role="group"
+              aria-label={`Gerenciar gravação: ${recording.title}`}
             >
               <h3 className="font-semibold break-words">{recording.title}</h3>
               <p className="text-xs text-muted-foreground flex items-center gap-2 mt-2">
@@ -325,12 +369,55 @@ export function RecordingsPanel({ userId, admin = false }: { userId: string; adm
                     <button
                       type="button"
                       className="portal-outline mt-2"
+                      disabled={uploading || !!mutationId || !!editing}
                       onClick={() => setResume(recording)}
                     >
                       Retomar envio
                     </button>
                   </div>
                 )
+              )}
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="portal-outline"
+                  disabled={uploading || !!mutationId || (!!editing && editing.id !== recording.id)}
+                  onClick={() => {
+                    setEditing(recording);
+                    setManagementNotice("");
+                  }}
+                >
+                  <Pencil className="size-4" /> Editar
+                </button>
+                <button
+                  type="button"
+                  className="portal-outline text-destructive"
+                  disabled={uploading || !!mutationId || !!editing}
+                  onClick={() => void removeRecording(recording)}
+                >
+                  <Trash2 className="size-4" />{" "}
+                  {mutationId === recording.id ? "Excluindo..." : "Excluir"}
+                </button>
+              </div>
+              {editing?.id === recording.id && (
+                <RecordingEditor
+                  key={recording.id}
+                  recording={recording}
+                  userId={userId}
+                  onCancel={() => setEditing(null)}
+                  onSaved={(changes) => {
+                    const updated = { ...recording, ...changes };
+                    setRecordings((items) =>
+                      items.map((item) => (item.id === recording.id ? updated : item)),
+                    );
+                    setSelected((item) => (item?.id === recording.id ? updated : item));
+                    setResume((item) => (item?.id === recording.id ? updated : item));
+                    setEditing(null);
+                    setManagementNotice(
+                      "Gravação atualizada. O vídeo e as anotações foram preservados.",
+                    );
+                  }}
+                />
               )}
             </div>
           ))}
@@ -349,16 +436,107 @@ export function RecordingsPanel({ userId, admin = false }: { userId: string; adm
     </section>
   );
 }
+function RecordingEditor({
+  recording,
+  userId,
+  onSaved,
+  onCancel,
+}: {
+  recording: CallRecording;
+  userId: string;
+  onSaved: (changes: Pick<CallRecording, "title" | "description" | "recorded_on">) => void;
+  onCancel: () => void;
+}) {
+  const [title, setTitle] = useState(recording.title);
+  const [date, setDate] = useState(recording.recorded_on);
+  const [description, setDescription] = useState(recording.description);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await editExclusiveRecording({
+        data: { id: recording.id, userId, title: title.trim(), description, recordedOn: date },
+      });
+      onSaved({ title: title.trim(), description, recorded_on: date });
+    } catch (e) {
+      setError(messageOf(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form aria-label="Editar gravação" className="mt-5 space-y-4 border-t pt-4" onSubmit={submit}>
+      <label className="block text-sm">
+        Título da call
+        <input
+          className="portal-input mt-2"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          maxLength={160}
+          required
+          disabled={busy}
+        />
+      </label>
+      <label className="block text-sm">
+        Data do encontro
+        <input
+          type="date"
+          className="portal-input mt-2"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          required
+          disabled={busy}
+        />
+      </label>
+      <label className="block text-sm">
+        Descrição da call
+        <textarea
+          aria-label="Descrição da call"
+          className="portal-input mt-2 min-h-24"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          maxLength={8000}
+          disabled={busy}
+        />
+      </label>
+      <p className="text-xs text-muted-foreground">
+        A edição mantém o vídeo, o destinatário e as anotações. Para trocar o vídeo, envie outra
+        gravação.
+      </p>
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <button type="submit" className="portal-button" disabled={busy}>
+          {busy ? "Salvando..." : "Salvar gravação"}
+        </button>
+        <button type="button" className="portal-outline" onClick={onCancel} disabled={busy}>
+          Cancelar edição
+        </button>
+      </div>
+    </form>
+  );
+}
 function RecordingUpload({
   userId,
   resume,
   onDone,
   onRefresh,
+  onBusyChange,
+  disabled,
 }: {
   userId: string;
   resume: CallRecording | null;
   onDone: () => Promise<void>;
   onRefresh: () => Promise<void>;
+  onBusyChange: (busy: boolean) => void;
+  disabled: boolean;
 }) {
   const [title, setTitle] = useState(resume?.title || "");
   const [date, setDate] = useState(resume?.recorded_on || today());
@@ -378,6 +556,10 @@ function RecordingUpload({
     };
   }, []);
   useEffect(() => {
+    onBusyChange(busy);
+    return () => onBusyChange(false);
+  }, [busy, onBusyChange]);
+  useEffect(() => {
     if (!busy) return;
     const warn = (event: BeforeUnloadEvent) => {
       event.preventDefault();
@@ -388,7 +570,7 @@ function RecordingUpload({
   }, [busy]);
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (busy) return;
+    if (busy || disabled) return;
     const form = event.currentTarget;
     if (!file) {
       setNotice("Selecione o arquivo da gravação.");
@@ -463,7 +645,7 @@ function RecordingUpload({
           onChange={(e) => setTitle(e.target.value)}
           maxLength={160}
           required
-          disabled={busy || !!draft}
+          disabled={busy || disabled || !!draft}
         />
       </label>
       <label className="text-sm min-w-0">
@@ -474,7 +656,7 @@ function RecordingUpload({
           value={date}
           onChange={(e) => setDate(e.target.value)}
           required
-          disabled={busy || !!draft}
+          disabled={busy || disabled || !!draft}
         />
       </label>
       <label className="text-sm sm:col-span-2 min-w-0">
@@ -484,7 +666,7 @@ function RecordingUpload({
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           maxLength={8000}
-          disabled={busy || !!draft}
+          disabled={busy || disabled || !!draft}
         />
       </label>
       <label className="text-sm sm:col-span-2 min-w-0">
@@ -493,7 +675,7 @@ function RecordingUpload({
           type="file"
           accept="video/mp4,video/webm,.mp4,.webm"
           className="portal-input mt-2"
-          disabled={busy}
+          disabled={busy || disabled}
           onChange={(e) => setFile(e.target.files?.[0] || null)}
         />
       </label>
@@ -522,7 +704,7 @@ function RecordingUpload({
         </div>
       )}
       <div className="sm:col-span-2 flex flex-wrap gap-3">
-        <button type="submit" className="portal-button" disabled={busy || !file}>
+        <button type="submit" className="portal-button" disabled={busy || disabled || !file}>
           <Upload className="size-4" />
           {busy ? "Enviando..." : draft ? "Retomar envio" : "Enviar gravação"}
         </button>

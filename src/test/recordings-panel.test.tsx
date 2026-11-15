@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   position: vi.fn(),
   upload: vi.fn(),
   clear: vi.fn(),
+  edit: vi.fn(),
+  remove: vi.fn(),
 }));
 vi.mock("@/lib/recordings", () => ({
   listRecordings: mocks.list,
@@ -25,6 +27,10 @@ vi.mock("@/lib/recordings", () => ({
 vi.mock("@/lib/recordings-upload", () => ({
   uploadRecordingFile: mocks.upload,
   clearRecordingUpload: mocks.clear,
+}));
+vi.mock("@/lib/content-admin.functions", () => ({
+  editExclusiveRecording: mocks.edit,
+  deleteExclusiveRecording: mocks.remove,
 }));
 const uid = "00000000-0000-4000-8000-000000000002";
 const record = {
@@ -54,6 +60,8 @@ beforeEach(() => {
   mocks.create.mockResolvedValue({ ...record, status: "uploading" });
   mocks.publish.mockResolvedValue(record);
   mocks.upload.mockResolvedValue(undefined);
+  mocks.edit.mockResolvedValue({ id: record.id });
+  mocks.remove.mockResolvedValue({ id: record.id });
 });
 afterEach(() => {
   cleanup();
@@ -328,5 +336,92 @@ describe("Experiência organizada do mentorado", () => {
     await screen.findByText("Sua jornada começa aqui");
     expect(screen.queryByLabelText(`Gravação: ${record.title}`)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Minhas anotações privadas")).not.toBeInTheDocument();
+  });
+});
+
+describe("Edição e exclusão de gravações individuais", () => {
+  it("não mostra ações de administração ao mentorado", async () => {
+    render(<RecordingsPanel userId={uid} />);
+    await screen.findByLabelText(`Gravação: ${record.title}`);
+    expect(screen.queryByRole("button", { name: "Editar" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Excluir" })).not.toBeInTheDocument();
+  });
+  it("salva título data e descrição da gravação selecionada", async () => {
+    render(<RecordingsPanel userId={uid} admin />);
+    fireEvent.click(await screen.findByRole("button", { name: "Editar" }));
+    fireEvent.change(screen.getByLabelText("Título da call"), {
+      target: { value: "Call corrigida" },
+    });
+    fireEvent.change(screen.getByLabelText("Data do encontro"), {
+      target: { value: "2026-11-13" },
+    });
+    fireEvent.change(screen.getByLabelText("Descrição da call"), {
+      target: { value: "Resumo corrigido" },
+    });
+    fireEvent.submit(screen.getByRole("form", { name: "Editar gravação" }));
+    await screen.findByText("Gravação atualizada. O vídeo e as anotações foram preservados.");
+    expect(mocks.edit).toHaveBeenCalledWith({
+      data: {
+        id: record.id,
+        userId: uid,
+        title: "Call corrigida",
+        recordedOn: "2026-11-13",
+        description: "Resumo corrigido",
+      },
+    });
+    expect(screen.getByRole("heading", { name: "Call corrigida" })).toBeInTheDocument();
+    expect(mocks.upload).not.toHaveBeenCalled();
+    expect(mocks.remove).not.toHaveBeenCalled();
+  });
+  it("preserva o formulário após falha de edição", async () => {
+    mocks.edit.mockRejectedValue(new Error("Falha ao salvar"));
+    render(<RecordingsPanel userId={uid} admin />);
+    fireEvent.click(await screen.findByRole("button", { name: "Editar" }));
+    fireEvent.change(screen.getByLabelText("Título da call"), {
+      target: { value: "Rascunho da edição" },
+    });
+    fireEvent.submit(screen.getByRole("form", { name: "Editar gravação" }));
+    await screen.findByRole("alert");
+    expect(screen.getByLabelText("Título da call")).toHaveValue("Rascunho da edição");
+  });
+  it("cancelar confirmação não exclui nada", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<RecordingsPanel userId={uid} admin />);
+    fireEvent.click(await screen.findByRole("button", { name: "Excluir" }));
+    expect(mocks.remove).not.toHaveBeenCalled();
+    expect(screen.getByText(record.title)).toBeInTheDocument();
+  });
+  it("remove somente a call escolhida e encerra o player dela", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await watch(true);
+    fireEvent.click(screen.getByRole("button", { name: "Excluir" }));
+    await screen.findByText("Gravação excluída do espaço do mentorado.");
+    expect(mocks.remove).toHaveBeenCalledWith({ data: { id: record.id, userId: uid } });
+    expect(mocks.clear).toHaveBeenCalledWith(record.file_path);
+    expect(screen.queryByLabelText(`Gravação: ${record.title}`)).not.toBeInTheDocument();
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("anotações e o progresso"));
+  });
+  it("mantém a call visível quando exclusão falhar", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    mocks.remove.mockRejectedValue(new Error("Vídeo mantido"));
+    render(<RecordingsPanel userId={uid} admin />);
+    fireEvent.click(await screen.findByRole("button", { name: "Excluir" }));
+    await screen.findByText("Vídeo mantido");
+    expect(screen.getByText(record.title)).toBeInTheDocument();
+    expect(mocks.clear).not.toHaveBeenCalled();
+  });
+  it("impede editar e excluir durante um envio na mesma tela", async () => {
+    mocks.upload.mockImplementation(() => new Promise(() => {}));
+    render(<RecordingsPanel userId={uid} admin />);
+    await screen.findByText(record.title);
+    fireEvent.change(screen.getByLabelText("Título da gravação"), {
+      target: { value: "Nova call" },
+    });
+    fireEvent.change(screen.getByLabelText("Arquivo da call (MP4 ou WebM)"), {
+      target: { files: [new File(["test"], "call.mp4")] },
+    });
+    fireEvent.submit(screen.getByRole("form", { name: "Enviar gravação exclusiva" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Excluir" })).toBeDisabled());
+    expect(screen.getByRole("button", { name: "Editar" })).toBeDisabled();
   });
 });

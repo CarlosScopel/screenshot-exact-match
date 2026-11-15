@@ -14,6 +14,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { inviteMentee, resendInvite, deleteMentee, reviewMentee } from "@/lib/admin.functions";
 import { approvalState } from "@/lib/approval";
+import { LessonMaterialActions } from "./LessonMaterialActions";
 import { MentorshipPanel } from "./MentorshipPanel";
 import { RecordingsPanel } from "./RecordingsPanel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -325,8 +326,17 @@ async function deleteRecord(
     | "cohorts",
   id: string,
   reload: () => Promise<void>,
+  title: string,
 ) {
-  if (!window.confirm("Tem certeza? Esta ação não poderá ser desfeita.")) return;
+  const impact =
+    table === "trainings"
+      ? "Os módulos, aulas, materiais vinculados, progresso e anotações deste treinamento também serão removidos para todos os alunos com acesso."
+      : table === "modules"
+        ? "As aulas, materiais vinculados, progresso e anotações deste módulo também serão removidos."
+        : table === "lessons"
+          ? "Os materiais vinculados, progresso e anotações desta aula também serão removidos."
+          : "O item deixará de aparecer para todos os alunos que tinham acesso a ele.";
+  if (!window.confirm(`Excluir “${title}”? ${impact} Esta ação não poderá ser desfeita.`)) return;
   const { error } = await supabase
     .from(table as "trainings")
     .delete()
@@ -382,7 +392,7 @@ function EntityManager({
           items.map((item) => (
             <div
               key={String(item["id"])}
-              className="p-5 flex justify-between items-center gap-4 border-b last:border-0"
+              className="p-5 flex flex-wrap justify-between items-center gap-4 border-b last:border-0"
             >
               <div className="min-w-0">
                 <h3 className="font-medium truncate">
@@ -400,12 +410,15 @@ function EntityManager({
                   aria-label="Excluir"
                   className="portal-outline text-destructive"
                   onClick={() =>
-                    deleteRecord(table, String(item["id"]), reload).catch((e) =>
-                      setMessage(String(e)),
-                    )
+                    deleteRecord(
+                      table,
+                      String(item["id"]),
+                      reload,
+                      String(item["title"] || item["name"] || "Sem título"),
+                    ).catch((e) => setMessage(String(e)))
                   }
                 >
-                  <Trash2 className="size-4" />
+                  <Trash2 className="size-4" /> Excluir
                 </button>
               </div>
             </div>
@@ -586,7 +599,7 @@ export function AdminPage({ page, data, reload, go, settings, refreshSettings }:
         <div className="surface overflow-hidden mt-5">
           {items.map((item) => (
             <div
-              className="flex gap-3 items-center p-5 border-b last:border-0"
+              className="flex flex-wrap gap-3 items-center p-5 border-b last:border-0"
               key={String(item["id"])}
             >
               <span className="size-10 rounded-xl bg-primary/10 text-primary grid place-content-center">
@@ -624,12 +637,15 @@ export function AdminPage({ page, data, reload, go, settings, refreshSettings }:
                 className="portal-outline text-destructive"
                 aria-label="Excluir"
                 onClick={() =>
-                  deleteRecord(table, String(item["id"]), reload).catch((e) =>
-                    setMessage(String(e)),
-                  )
+                  deleteRecord(
+                    table,
+                    String(item["id"]),
+                    reload,
+                    String(item["title"] || item["name"] || "Sem título"),
+                  ).catch((e) => setMessage(String(e)))
                 }
               >
-                <Trash2 className="size-4" />
+                <Trash2 className="size-4" /> Excluir
               </button>
             </div>
           ))}
@@ -849,22 +865,7 @@ function LessonMaterials({
       {data.materials
         .filter((m) => lessonIds.some((l) => l.id === m.lesson_id))
         .map((m) => (
-          <div className="flex justify-between items-center border-t py-3 text-sm" key={m.id}>
-            <span>{m.title}</span>
-            <button
-              className="text-destructive"
-              onClick={() => {
-                if (window.confirm("Excluir referência a este material?"))
-                  void supabase
-                    .from("lesson_materials")
-                    .delete()
-                    .eq("id", m.id)
-                    .then(() => reload());
-              }}
-            >
-              Excluir
-            </button>
-          </div>
+          <LessonMaterialActions key={m.id} material={m} reload={reload} disabled={busy} />
         ))}
     </div>
   );
