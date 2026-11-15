@@ -1,0 +1,75 @@
+name: Verify published content controls
+on:
+  push:
+    branches: [qa/content-edit-delete-20261115]
+    paths: [.github/workflows/qa-content-published.yml]
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  published:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 9bdf75b5bfed7685ab5ec182ed60bb8e2c28fa15
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Rebuild the exact committed application
+        run: |
+          mkdir -p publication-evidence
+          bun install --frozen-lockfile
+          bun run build > publication-evidence/build.log 2>&1
+      - name: Compare published assets without accessing accounts
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import crypto from 'node:crypto';
+          import assert from 'node:assert/strict';
+          const base='https://aordemx.lovable.app';
+          const dir='.output/public/assets';
+          const markers=['Salvar gravação','Gravação excluída do espaço do mentorado.','Salvar material'];
+          const locals=Object.fromEntries(fs.readdirSync(dir).filter(n=>n.endsWith('.js')).map(n=>[n,fs.readFileSync(dir+'/'+n,'utf8')]));
+          const targets=Object.entries(locals).filter(([name,body])=>markers.some(m=>body.includes(m)));
+          assert.ok(targets.length,'No new controls were found in the committed build');
+          assert.ok(markers.every(m=>targets.some(([name,body])=>body.includes(m))),'Missing local feature markers');
+          const hash=(s)=>crypto.createHash('sha256').update(s).digest('hex');
+          let last;
+          for(let attempt=0;attempt<20;attempt++){
+            const report={commit:'9bdf75b5bfed7685ab5ec182ed60bb8e2c28fa15',base,scope:'Public assets only; no logins or content changes.',attempt:attempt+1,assets:[]};
+            try{
+              const home=await fetch(base+'/?qa_content_controls='+Date.now(),{signal:AbortSignal.timeout(20000)});
+              report.homeStatus=home.status;assert.equal(home.status,200);
+              const html=await home.text();const queue=[...html.matchAll(/(?:\/assets\/)([A-Za-z0-9_-]+\.js)/g)].map(m=>m[1]);
+              const visited=new Set();const publicBodies={};
+              while(queue.length&&visited.size<60){
+                const name=queue.shift();if(visited.has(name))continue;visited.add(name);
+                const res=await fetch(base+'/assets/'+name,{signal:AbortSignal.timeout(15000)});
+                if(!res.ok)continue;const body=await res.text();publicBodies[name]=body;
+                for(const m of body.matchAll(/["'`](?:\.\/|\/assets\/)?([A-Za-z0-9_-]+\.js)["'`]/g))if(!visited.has(m[1]))queue.push(m[1]);
+              }
+              assert.ok(visited.size,'No public entry scripts discovered');
+              for(const [name,body] of targets){
+                assert.ok(visited.has(name),'Current entry does not reference '+name);
+                assert.equal(hash(publicBodies[name]||''),hash(body),'Published asset differs: '+name);
+                report.assets.push({name,sha256:hash(body),bytes:Buffer.byteLength(body),identical:true});
+              }
+              report.markers=markers.map(text=>({text,present:Object.values(publicBodies).some(body=>body.includes(text))}));
+              assert.ok(report.markers.every(m=>m.present));report.success=true;
+              fs.writeFileSync('publication-evidence/publication.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));process.exit(0);
+            }catch(error){last=String(error);report.success=false;report.error=last;fs.writeFileSync('publication-evidence/publication.json',JSON.stringify(report,null,2));}
+            await new Promise(r=>setTimeout(r,5000));
+          }
+          throw new Error(last||'Published version not confirmed');
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: content-controls-publication
+          path: publication-evidence/
+          retention-days: 7
