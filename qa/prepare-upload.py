@@ -15,5 +15,9 @@ subprocess.run(['python3','qa/refine-upload.py'],check=True)
 browser=Path('qa/validate-upload-browser.mjs')
 source=browser.read_text().replace("import react from '@vitejs/plugin-react';", "import react from '@vitejs/plugin-react';\nimport tailwind from '@tailwindcss/vite';")
 source=source.replace('}},react()],resolve:', '}},react(),tailwind()],resolve:')
+old="resolve:{alias:{'@':path.join(root,'src')}}"
+assert old in source
+source=source.replace(old,"resolve:{alias:[...Object.entries(stubs).map(([find,file])=>({find,replacement:path.join(qa,file)})),{find:'@',replacement:path.join(root,'src')}]}")
+source=source.replace("page.on('pageerror',e=>report.pageErrors.push(e.message));", "page.on('console',m=>{if(m.type()==='error')console.log('Browser console:',m.text())});page.on('pageerror',e=>report.pageErrors.push(e.message));")
 browser.write_text(source)
 Path('tsconfig.qa-runtime.json').write_text('{"extends":"./tsconfig.json","compilerOptions":{"types":["vite/client","node"]},"include":["src"],"exclude":["src/test"]}')
