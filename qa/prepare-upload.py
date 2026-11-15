@@ -1,5 +1,4 @@
 from pathlib import Path
-# The preceding QA commit contains the already-tested upload changes.
 assert Path('src/lib/recording-transfers.ts').exists()
 p=Path('src/lib/auth.tsx')
 s=p.read_text()
@@ -37,5 +36,9 @@ source=source.replace('}},react()],resolve:', '}},react(),tailwind()],resolve:')
 old="resolve:{alias:{'@':path.join(root,'src')}}"
 assert old in source
 source=source.replace(old,"resolve:{alias:[...Object.entries(stubs).map(([find,file])=>({find,replacement:path.join(qa,file)})),{find:'@',replacement:path.join(root,'src')}]}")
+source=source.replace('const server=http.createServer(async(req,res)=>{','const server=http.createServer(async(req,res)=>{try{')
+old='  res.statusCode=405;res.end();\n});'
+assert old in source
+source=source.replace(old,"  res.statusCode=405;res.end();\n}catch(error){if(req.aborted || error.code==='ECONNRESET')return;console.error(error);res.statusCode=500;res.end('Isolated test server error');}\n});")
 browser.write_text(source)
 Path('tsconfig.qa-runtime.json').write_text('{"extends":"./tsconfig.json","compilerOptions":{"types":["vite/client","node"]},"include":["src"],"exclude":["src/test"]}')
