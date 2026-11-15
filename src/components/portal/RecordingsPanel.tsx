@@ -19,17 +19,23 @@ import {
   Video,
 } from "lucide-react";
 import {
-  createRecording,
   getRecordingLearning,
   listRecordings,
-  publishRecording,
   recordingDate,
   recordingPlayback,
   saveRecordingNote,
   saveRecordingPosition,
   type CallRecording,
 } from "@/lib/recordings";
-import { clearRecordingUpload, uploadRecordingFile } from "@/lib/recordings-upload";
+import { clearRecordingUpload } from "@/lib/recordings-upload";
+import {
+  startRecordingTransfer,
+  pauseRecordingTransfer,
+  resumeRecordingTransfer,
+  forgetRecordingTransfer,
+  transferIsActive,
+  useRecordingTransfer,
+} from "@/lib/recording-transfers";
 import { editExclusiveRecording, deleteExclusiveRecording } from "@/lib/content-admin.functions";
 
 const messageOf = (error: unknown) =>
@@ -46,7 +52,9 @@ export function RecordingsPanel({ userId, admin = false }: { userId: string; adm
   const [speed, setSpeed] = useState("1");
   const [editing, setEditing] = useState<CallRecording | null>(null);
   const [mutationId, setMutationId] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const [formBusy, setUploading] = useState(false);
+  const activeTransfer = useRecordingTransfer(userId);
+  const uploading = formBusy || transferIsActive(activeTransfer);
   const [uploadVersion, setUploadVersion] = useState(0);
   const [managementNotice, setManagementNotice] = useState("");
   const request = useRef(0);
@@ -115,6 +123,7 @@ export function RecordingsPanel({ userId, admin = false }: { userId: string; adm
     try {
       await deleteExclusiveRecording({ data: { id: recording.id, userId } });
       clearRecordingUpload(recording.file_path);
+      forgetRecordingTransfer(userId, recording.id);
       setRecordings((items) => items.filter((item) => item.id !== recording.id));
       setSelected((item) => (item?.id === recording.id ? null : item));
       setResume(null);
@@ -538,102 +547,67 @@ function RecordingUpload({
   onBusyChange: (busy: boolean) => void;
   disabled: boolean;
 }) {
-  const [title, setTitle] = useState(resume?.title || "");
-  const [date, setDate] = useState(resume?.recorded_on || today());
-  const [description, setDescription] = useState(resume?.description || "");
+  const currentTransfer = useRecordingTransfer(userId);
+  const transfer =
+    !resume || currentTransfer?.recording?.id === resume.id ? currentTransfer : undefined;
+  const [title, setTitle] = useState(
+    transfer?.recording?.title || transfer?.title || resume?.title || "",
+  );
+  const [date, setDate] = useState(
+    transfer?.recording?.recorded_on || resume?.recorded_on || today(),
+  );
+  const [description, setDescription] = useState(
+    transfer?.recording?.description || resume?.description || "",
+  );
   const [file, setFile] = useState<File | null>(null);
-  const [draft, setDraft] = useState<CallRecording | null>(resume);
-  const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [notice, setNotice] = useState("");
-  const abort = useRef<AbortController | null>(null);
-  const alive = useRef(true);
-  useEffect(() => {
-    alive.current = true;
-    return () => {
-      alive.current = false;
-      abort.current?.abort();
-    };
-  }, []);
+  const [localNotice, setNotice] = useState("");
+  const draft = transfer?.status === "complete" ? null : transfer?.recording || resume;
+  const busy = transferIsActive(transfer);
+  const progress = transfer?.progress || 0;
+  const notice = localNotice || transfer?.message || "";
+  const formRef = useRef<HTMLFormElement>(null);
+  const handledCompletion = useRef<string | null>(null);
   useEffect(() => {
     onBusyChange(busy);
     return () => onBusyChange(false);
   }, [busy, onBusyChange]);
   useEffect(() => {
-    if (!busy) return;
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [busy]);
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    if (
+      transfer?.status !== "complete" ||
+      !transfer.recording ||
+      handledCompletion.current === transfer.recording.id
+    )
+      return;
+    handledCompletion.current = transfer.recording.id;
+    setFile(null);
+    setTitle("");
+    setDescription("");
+    setDate(today());
+    formRef.current?.reset();
+    void onDone().catch((error: unknown) => setNotice(messageOf(error)));
+  }, [transfer, onDone]);
+  const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (busy || disabled) return;
-    const form = event.currentTarget;
-    if (!file) {
-      setNotice("Selecione o arquivo da gravação.");
-      return;
-    }
-    const controller = new AbortController();
-    abort.current = controller;
-    setBusy(true);
     setNotice("");
-    setProgress(0);
     try {
-      let target = draft;
-      if (!target) {
-        target = await createRecording(userId, title, description, date, file);
-        if (alive.current) setDraft(target);
+      if (!file && transfer?.hasFile) {
+        void resumeRecordingTransfer(userId);
+        return;
       }
-      controller.signal.throwIfAborted();
-      let published = false;
-      if (draft) {
-        try {
-          await publishRecording(target.id);
-          published = true;
-        } catch (error) {
-          if (!messageOf(error).startsWith("Envio incompleto")) throw error;
-        }
+      if (!file) {
+        setNotice("Selecione o arquivo da gravação.");
+        return;
       }
-      if (!published) {
-        await uploadRecordingFile(target, file, {
-          signal: controller.signal,
-          onProgress: (done, total) => {
-            if (alive.current) setProgress(Math.floor((done / total) * 100));
-          },
-        });
-        controller.signal.throwIfAborted();
-        await publishRecording(target.id);
-      }
-      clearRecordingUpload(target.file_path);
-      if (alive.current) {
-        setNotice("Gravação publicada no espaço exclusivo do mentorado.");
-        setDraft(null);
-        setFile(null);
-        setTitle("");
-        setDescription("");
-        setDate(today());
-        form.reset();
-        await onDone();
-      }
-    } catch (e) {
-      if (alive.current) {
-        setNotice(
-          controller.signal.aborted
-            ? "Envio pausado. Selecione o mesmo arquivo e retome quando desejar."
-            : messageOf(e),
-        );
-        await onRefresh();
-      }
-    } finally {
-      if (alive.current) setBusy(false);
+      void startRecordingTransfer({ userId, title, description, date, file, recording: draft });
+    } catch (error) {
+      setNotice(messageOf(error));
     }
   };
   return (
     <form
       onSubmit={submit}
+      ref={formRef}
       aria-label="Enviar gravação exclusiva"
       className="surface p-5 grid gap-4 sm:grid-cols-2"
     >
@@ -681,7 +655,8 @@ function RecordingUpload({
       </label>
       <p className="text-xs text-muted-foreground sm:col-span-2">
         MP4 H.264/AAC ou WebM, até 5 GB, sujeito ao limite do armazenamento. O envio usa blocos e
-        pode ser retomado nesta aba com o mesmo arquivo. Mantenha a página aberta até concluir.
+        continua ao navegar pela plataforma. Não feche nem recarregue esta aba durante o envio. Se
+        precisar reabrir a página, escolha o mesmo arquivo em Retomar envio.
       </p>
       {draft && (
         <p className="text-xs text-muted-foreground sm:col-span-2 break-all">
@@ -704,12 +679,21 @@ function RecordingUpload({
         </div>
       )}
       <div className="sm:col-span-2 flex flex-wrap gap-3">
-        <button type="submit" className="portal-button" disabled={busy || disabled || !file}>
+        <button
+          type="submit"
+          className="portal-button"
+          disabled={busy || disabled || (!file && !transfer?.hasFile)}
+        >
           <Upload className="size-4" />
           {busy ? "Enviando..." : draft ? "Retomar envio" : "Enviar gravação"}
         </button>
         {busy && (
-          <button type="button" className="portal-outline" onClick={() => abort.current?.abort()}>
+          <button
+            type="button"
+            className="portal-outline"
+            disabled={transfer?.status === "publishing"}
+            onClick={() => pauseRecordingTransfer(userId)}
+          >
             Pausar envio
           </button>
         )}

@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setRecordingUploadOwner } from "@/lib/recording-transfers";
 import { RecordingsPanel } from "@/components/portal/RecordingsPanel";
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
@@ -47,6 +48,8 @@ const record = {
   created_at: "2026-11-12T00:00:00Z",
 };
 beforeEach(() => {
+  setRecordingUploadOwner(null);
+  setRecordingUploadOwner("admin-test");
   vi.resetAllMocks();
   mocks.list.mockResolvedValue([record]);
   mocks.playback.mockResolvedValue("https://example.test/video");
@@ -65,6 +68,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  setRecordingUploadOwner(null);
   vi.restoreAllMocks();
 });
 async function watch(admin = false) {
