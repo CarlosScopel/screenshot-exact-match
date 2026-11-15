@@ -1,0 +1,66 @@
+name: QA published recording limit
+on:
+  push:
+    branches: [qa/recordings-limit-5gb-20261115]
+    paths: [.github/workflows/qa-recordings-5gb-publication.yml]
+permissions:
+  contents: read
+jobs:
+  published:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Read published scripts and advertised TUS limit without authentication or upload
+        run: |
+          mkdir -p evidence
+          node --env-file=.env --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const base='https://aordemx.lovable.app';
+          const report={commit:'00730e194558892dc7f8c87e04a0573637c40ed8',published:false,uploadPerformed:false,globalSettingChanged:false};
+          const get=async(url,options={})=>fetch(url,{...options,signal:AbortSignal.timeout(12000)});
+          try {
+            const storage=process.env.VITE_SUPABASE_URL.replace(/\/$/,'');
+            const r=await get(storage+'/storage/v1/upload/resumable',{method:'OPTIONS',headers:{apikey:process.env.VITE_SUPABASE_PUBLISHABLE_KEY,'Tus-Resumable':'1.0.0'}});
+            report.storageOptionsStatus=r.status;
+            report.tusMaxSize=r.headers.get('Tus-Max-Size');
+            report.tusVersion=r.headers.get('Tus-Version');
+          } catch(e){report.storageProbeError=String(e.message);}
+          for(let attempt=0;attempt<10;attempt++) {
+            try {
+              const r=await get(base);report.httpStatus=r.status;
+              if(r.status===401 || r.status===403){report.publicationBlocked='restricted';break;}
+              const html=await r.text();
+              const todo=[...html.matchAll(/(?:src|href)=["']([^"']+\.js)["']/g)].map(m=>new URL(m[1],base).href);
+              const seen=new Set();let text='';
+              while(todo.length && seen.size<35){
+                const url=todo.shift();
+                if(seen.has(url) || new URL(url).origin!==new URL(base).origin)continue;
+                seen.add(url);const response=await get(url);if(!response.ok)continue;
+                const js=await response.text();text+=js;
+                for(const match of js.matchAll(/["']([^"'\s]+\.js)["']/g)){
+                  const item=match[1];if(item.startsWith('./') || item.startsWith('/assets/') || /^[\w.-]+\.js$/.test(item))todo.push(new URL(item,url).href);
+                }
+              }
+              report.scriptsRead=seen.size;
+              report.newLimitMessage=text.includes('MP4 ou WebM de até 5 GB.');
+              report.newUploadHelp=text.includes('até 5 GB, sujeito ao limite do armazenamento');
+              report.oldLimitMessage=text.includes('MP4 ou WebM de até 2 GB.');
+              report.published=report.newLimitMessage && report.newUploadHelp && !report.oldLimitMessage;
+              if(report.published)break;
+            }catch(e){report.publicationError=String(e.message);}
+            await new Promise(r=>setTimeout(r,4000));
+          }
+          fs.writeFileSync('evidence/publication.json',JSON.stringify(report,null,2));
+          console.log(JSON.stringify(report,null,2));
+          if(!report.published)process.exitCode=1;
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recordings-5gb-publication
+          path: evidence/publication.json
+          retention-days: 7
