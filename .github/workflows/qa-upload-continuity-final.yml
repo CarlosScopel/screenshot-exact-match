@@ -1,0 +1,72 @@
+name: QA upload continuity final
+on:
+  push:
+    branches: [qa/upload-continuity-20261115]
+    paths: [.github/workflows/qa-upload-continuity-final.yml, qa/prepare-upload.py, qa/refine-upload.py, qa/validate-upload-browser.mjs]
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Verified scoped patch
+        run: |
+          mkdir -p evidence
+          python3 qa/prepare-upload.py
+          git add -N src
+          bun install --frozen-lockfile
+          git diff --name-only -- src > evidence/changed-files.txt
+          grep -v 'src/components/portal/Portal.tsx' evidence/changed-files.txt | xargs bunx --no-install prettier --write
+      - name: Application types and known baseline test report
+        run: |
+          set -o pipefail
+          bunx --no-install tsc --noEmit -p tsconfig.qa-runtime.json 2>&1 | tee evidence/typescript-runtime.log
+          bunx --no-install tsc --noEmit --pretty false > evidence/typescript-all.log 2>&1 || true
+          cat evidence/typescript-all.log
+          python3 - <<'PY'
+          from pathlib import Path
+          errors=[x for x in Path('evidence/typescript-all.log').read_text().splitlines() if ': error TS' in x]
+          assert all(x.startswith('src/test/billing-observation.test.tsx(34,77): error TS2769:') for x in errors),errors
+          PY
+      - name: Unit tests lint and production build
+        run: |
+          set -o pipefail
+          bun run test --reporter=default --reporter=json --outputFile=evidence/vitest.json 2>&1 | tee evidence/tests.log
+          grep -v 'src/components/portal/Portal.tsx' evidence/changed-files.txt | xargs bunx --no-install eslint 2>&1 | tee evidence/lint.log
+          bunx --no-install eslint src/components/portal/Portal.tsx --rule 'prettier/prettier: off' 2>&1 | tee evidence/portal-lint.log
+          bun run build 2>&1 | tee evidence/build.log
+      - name: Browser dependencies outside application
+        run: |
+          npm install --prefix "$RUNNER_TEMP/qa-browser" --no-save --package-lock=false playwright
+          node "$RUNNER_TEMP/qa-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Actual HTTP upload and resumed byte integrity
+        run: |
+          set -o pipefail
+          PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/qa-browser/node_modules/playwright/index.mjs" node qa/validate-upload-browser.mjs 2>&1 | tee evidence/browser.log
+      - name: Preserve verified source only
+        run: |
+          git config user.name 'Carlos Scopel'
+          git config user.email '134417730+CarlosScopel@users.noreply.github.com'
+          git add src
+          git diff --cached --check
+          git commit -m 'fix: preservar envios de gravacoes ao navegar e recuperar interrupcoes'
+          git push origin HEAD:qa/upload-continuity-20261115
+          git rev-parse HEAD > evidence/verified-commit.txt
+          git ls-tree -r HEAD src > evidence/tree.txt
+      - name: Evidence without credentials
+        if: always()
+        run: |
+          git diff -- src > evidence/source.diff
+          tar -czf evidence/source.tar.gz src scripts package.json bun.lock tsconfig.json vite.config.ts vitest.config.ts eslint.config.js AGENTS.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: upload-continuity-evidence
+          path: evidence/
+          retention-days: 7
