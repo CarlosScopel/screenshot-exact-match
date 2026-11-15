@@ -1,0 +1,92 @@
+name: QA recordings 5 GB limit
+on:
+  push:
+    branches: [qa/recordings-limit-5gb-20261115]
+    paths: [.github/workflows/qa-recordings-5gb.yml]
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: qa_disposable_only
+          POSTGRES_DB: ordem_recordings_qa
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Apply only inspected recording-limit changes
+        run: |
+          mkdir -p evidence
+          python3 - <<'PY'
+          from pathlib import Path
+          replacements = {
+            'src/lib/recordings.ts': [('RECORDING_MAX_BYTES = 2 * 1024 * 1024 * 1024', 'RECORDING_MAX_BYTES = 5 * 1024 * 1024 * 1024', 1), ('até 2 GB.', 'até 5 GB.', 1)],
+            'src/lib/recordings-upload.ts': [('O armazenamento recusou o tamanho do vídeo. O limite global do provedor pode ser menor que 2 GB; reduza o arquivo ou ajuste esse limite no backend.', 'O armazenamento recusou o tamanho do vídeo. Verifique se o limite global do Lovable está em 5 GB em Mais > Armazenamento > Limite de upload.', 1)],
+            'src/components/portal/RecordingsPanel.tsx': [('até 2 GB,', 'até 5 GB,', 1)],
+            'src/test/recordings-api.test.ts': [('2 GB', '5 GB', 2)],
+            'scripts/setup-mentorship-recordings.sql': [('2147483648', '5368709120', 2)],
+            'scripts/validate-recordings.sql': [('file_size_limit=2147483648', 'file_size_limit=5368709120', 1)]
+          }
+          for name, edits in replacements.items():
+            p=Path(name); s=p.read_text()
+            for old,new,count in edits:
+              assert s.count(old)==count, (name,old,s.count(old))
+              s=s.replace(old,new)
+            p.write_text(s)
+          p=Path('scripts/validate-recordings.sql'); s=p.read_text()
+          anchor='\\ir setup-mentorship-recordings.sql\n'
+          assert s.count(anchor)==1
+          s=s.replace(anchor,anchor+'\\ir upgrade-recording-limit-5gb.sql\n\\ir upgrade-recording-limit-5gb.sql\n')
+          anchor="SELECT public.recordings_create('00000000-0000-4000-8000-000000000002','Call Alice'"
+          assert s.count(anchor)==1
+          checks="""SAVEPOINT recording_size_limits;
+          SELECT qa_assert('exact 5 GB accepted by real recording RPC',(public.recordings_create('00000000-0000-4000-8000-000000000002','Large call','',current_date,'large.mp4',5368709120,'video/mp4')->>'size_bytes')::bigint=5368709120);
+          SELECT qa_assert('old 2 GB limit no longer blocks',(public.recordings_create('00000000-0000-4000-8000-000000000002','Above old limit','',current_date,'large.webm',2147483649,'video/webm')->>'size_bytes')::bigint=2147483649);
+          SELECT qa_reject('5 GB plus one byte rejected',$q$SELECT public.recordings_create('00000000-0000-4000-8000-000000000002','Too large','',current_date,'large.mp4',5368709121,'video/mp4')$q$,'size_bytes_check');
+          SELECT qa_reject('empty recordings remain rejected',$q$SELECT public.recordings_create('00000000-0000-4000-8000-000000000002','Empty','',current_date,'empty.mp4',0,'video/mp4')$q$,'size_bytes_check');
+          ROLLBACK TO SAVEPOINT recording_size_limits;
+          """
+          s=s.replace(anchor,checks+anchor); p.write_text(s)
+          PY
+          bun install --frozen-lockfile
+          bunx --no-install prettier --write src/lib/recordings.ts src/lib/recordings-upload.ts src/components/portal/RecordingsPanel.tsx src/test/recordings-api.test.ts src/test/recordings-size-limit.test.ts
+          git diff --check
+      - name: TypeScript
+        run: bunx --no-install tsc --noEmit 2>&1 | tee evidence/typescript.log
+      - name: Full unit and component suite
+        run: bun run test --reporter=default --reporter=json --outputFile=evidence/vitest.json 2>&1 | tee evidence/tests.log
+      - name: Scoped lint
+        run: bunx --no-install eslint src/lib/recordings.ts src/lib/recordings-upload.ts src/components/portal/RecordingsPanel.tsx src/test/recordings-api.test.ts src/test/recordings-size-limit.test.ts 2>&1 | tee evidence/lint.log
+      - name: Recording sizes and existing privacy policies on disposable database
+        env:
+          PGPASSWORD: qa_disposable_only
+        run: psql -h 127.0.0.1 -U postgres -d ordem_recordings_qa -v ON_ERROR_STOP=1 -f scripts/validate-recordings.sql 2>&1 | tee evidence/sql.log
+      - name: Production build
+        run: bun run build 2>&1 | tee evidence/build.log
+      - name: Preserve verified application files only
+        run: |
+          git config user.name 'Carlos Scopel'
+          git config user.email '134417730+CarlosScopel@users.noreply.github.com'
+          git add src/lib/recordings.ts src/lib/recordings-upload.ts src/components/portal/RecordingsPanel.tsx src/test/recordings-api.test.ts src/test/recordings-size-limit.test.ts scripts/setup-mentorship-recordings.sql scripts/validate-recordings.sql scripts/upgrade-recording-limit-5gb.sql
+          git diff --cached --check
+          git diff --cached > evidence/source.diff
+          git commit -m 'test: preservar aumento verificado do limite de gravacoes para 5 GB'
+          git push origin HEAD:qa/recordings-limit-5gb-20261115
+          git rev-parse HEAD > evidence/verified-commit.txt
+          git ls-tree -r HEAD -- src/lib/recordings.ts src/lib/recordings-upload.ts src/components/portal/RecordingsPanel.tsx src/test/recordings-api.test.ts src/test/recordings-size-limit.test.ts scripts/setup-mentorship-recordings.sql scripts/validate-recordings.sql scripts/upgrade-recording-limit-5gb.sql > evidence/verified-files.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recordings-5gb-evidence
+          path: evidence/
+          retention-days: 7
