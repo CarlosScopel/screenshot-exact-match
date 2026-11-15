@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PortalApp } from "@/components/portal/Portal";
-import { createDemoPortalData } from "@/lib/demo";
+import { createTestPortalData } from "@/test/fixtures";
 const mock = vi.hoisted(() => ({
   load: vi.fn(),
   account: {
@@ -54,7 +54,7 @@ vi.mock("@/lib/media", () => ({
 }));
 beforeEach(() => {
   vi.clearAllMocks();
-  mock.load.mockResolvedValue(createDemoPortalData());
+  mock.load.mockResolvedValue(createTestPortalData());
   mock.account = { status: "active", legacy_expires_at: null, plans: [] };
   mock.error = "";
 });

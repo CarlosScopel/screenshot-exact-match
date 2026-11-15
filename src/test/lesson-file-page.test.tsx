@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PortalApp } from "@/components/portal/Portal";
-import { createDemoPortalData } from "@/lib/demo";
+import { createTestPortalData } from "@/test/fixtures";
 
 const mock = vi.hoisted(() => ({ load: vi.fn() }));
 vi.mock("@/lib/portal", async (importOriginal) => ({
@@ -55,23 +55,23 @@ beforeEach(() => {
 afterEach(cleanup);
 
 async function openLesson(videoUrl: string | null) {
-  const data = createDemoPortalData();
+  const data = createTestPortalData();
   data.lessons = data.lessons.map((lesson) => ({ ...lesson, video_url: videoUrl }));
   data.materials = [
     {
       id: "pdf",
-      lesson_id: "demo-lesson-2",
+      lesson_id: "test-lesson-2",
       title: "PDF da aula atual",
-      file_path: "lesson/demo-lesson-2/guia.pdf",
+      file_path: "lesson/test-lesson-2/guia.pdf",
       url: null,
       position: 0,
       created_at: "2026-11-12T00:00:00Z",
     },
     {
       id: "other",
-      lesson_id: "demo-lesson-1",
+      lesson_id: "test-lesson-1",
       title: "Arquivo de outra aula",
-      file_path: "lesson/demo-lesson-1/guia.pdf",
+      file_path: "lesson/test-lesson-1/guia.pdf",
       url: null,
       position: 0,
       created_at: "2026-11-12T00:00:00Z",

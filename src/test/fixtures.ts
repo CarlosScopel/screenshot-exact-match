@@ -1,20 +1,17 @@
 import type { PortalData } from "@/lib/portal";
 
-export const DEMO_EMAIL = "mentorado@demo.aordem";
-export const DEMO_PASSWORD = "OrdemDemo2026!";
-export const DEMO_USER_ID = "demo-mentorado";
-export const DEMO_MEMBER_NAME = "Alex Mentorando";
+export const TEST_USER_ID = "test-mentorado";
 
 /**
- * Fully local preview data. None of these IDs represent real accounts or rows.
- * Never use these objects in an authenticated Supabase query.
+ * Local fixture data for unit tests only. None of these IDs represent real
+ * accounts or rows. Never use these objects in an authenticated query.
  */
-export function createDemoPortalData(): PortalData {
+export function createTestPortalData(): PortalData {
   const now = new Date().toISOString();
   return {
     trainings: [
       {
-        id: "demo-training-1",
+        id: "test-training-1",
         title: "Fundamentos da Estratégia",
         description: "Construa a base para operar com clareza, execução e visão de longo prazo.",
         cover_url: null,
@@ -24,7 +21,7 @@ export function createDemoPortalData(): PortalData {
         created_at: now,
       },
       {
-        id: "demo-training-2",
+        id: "test-training-2",
         title: "Acelerando Resultados",
         description: "Do planejamento à prática: os processos para evoluir suas campanhas.",
         cover_url: null,
@@ -34,7 +31,7 @@ export function createDemoPortalData(): PortalData {
         created_at: now,
       },
       {
-        id: "demo-training-3",
+        id: "test-training-3",
         title: "Mentalidade de Elite",
         description: "Rotina, decisões e consistência para construir sua jornada.",
         cover_url: null,
@@ -46,8 +43,8 @@ export function createDemoPortalData(): PortalData {
     ],
     modules: [
       {
-        id: "demo-module-1",
-        training_id: "demo-training-1",
+        id: "test-module-1",
+        training_id: "test-training-1",
         title: "Módulo 01 · Primeiros Passos",
         description: "Conheça o ambiente e organize seu plano.",
         status: "published",
@@ -55,8 +52,8 @@ export function createDemoPortalData(): PortalData {
         created_at: now,
       },
       {
-        id: "demo-module-2",
-        training_id: "demo-training-1",
+        id: "test-module-2",
+        training_id: "test-training-1",
         title: "Módulo 02 · Estrutura",
         description: "Organize processos para executar.",
         status: "published",
@@ -64,8 +61,8 @@ export function createDemoPortalData(): PortalData {
         created_at: now,
       },
       {
-        id: "demo-module-3",
-        training_id: "demo-training-2",
+        id: "test-module-3",
+        training_id: "test-training-2",
         title: "Módulo 01 · Planejamento",
         description: "Entenda o processo de criação de campanhas.",
         status: "published",
@@ -73,8 +70,8 @@ export function createDemoPortalData(): PortalData {
         created_at: now,
       },
       {
-        id: "demo-module-4",
-        training_id: "demo-training-3",
+        id: "test-module-4",
+        training_id: "test-training-3",
         title: "Módulo 01 · Evolução",
         description: "Desenvolva sua visão de crescimento.",
         status: "published",
@@ -84,12 +81,12 @@ export function createDemoPortalData(): PortalData {
     ],
     lessons: [
       {
-        id: "demo-lesson-1",
-        module_id: "demo-module-1",
+        id: "test-lesson-1",
+        module_id: "test-module-1",
         title: "Bem-vindo à A ORDEM",
         description: "Uma apresentação do ambiente exclusivo e da jornada de aprendizado.",
         content:
-          "### Seu espaço de evolução\n\nExplore as aulas, marque seu progresso e organize suas anotações. **Este conteúdo é apenas demonstrativo.**",
+          "### Seu espaço de evolução\n\nExplore as aulas, marque seu progresso e organize suas anotações.",
         video_url: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
         thumbnail_url: null,
         duration_minutes: 6,
@@ -99,8 +96,8 @@ export function createDemoPortalData(): PortalData {
         created_at: now,
       },
       {
-        id: "demo-lesson-2",
-        module_id: "demo-module-1",
+        id: "test-lesson-2",
+        module_id: "test-module-1",
         title: "Organizando sua Jornada",
         description: "Como aproveitar os módulos e acompanhar sua evolução.",
         content:
@@ -114,8 +111,8 @@ export function createDemoPortalData(): PortalData {
         created_at: now,
       },
       {
-        id: "demo-lesson-3",
-        module_id: "demo-module-2",
+        id: "test-lesson-3",
+        module_id: "test-module-2",
         title: "Estrutura de uma Operação",
         description: "Os pilares fundamentais de uma operação organizada.",
         content: "### Organização\n\nConheça o processo e os próximos passos desta jornada.",
@@ -128,8 +125,8 @@ export function createDemoPortalData(): PortalData {
         created_at: now,
       },
       {
-        id: "demo-lesson-4",
-        module_id: "demo-module-3",
+        id: "test-lesson-4",
+        module_id: "test-module-3",
         title: "Planejando Campanhas",
         description: "Um exemplo de planejamento prático.",
         content:
@@ -143,8 +140,8 @@ export function createDemoPortalData(): PortalData {
         created_at: now,
       },
       {
-        id: "demo-lesson-5",
-        module_id: "demo-module-4",
+        id: "test-lesson-5",
+        module_id: "test-module-4",
         title: "A Consistência como Estratégia",
         description: "O poder de uma execução consistente.",
         content: "### Evolução contínua\n\nPequenos avanços sustentados formam grandes resultados.",
@@ -160,16 +157,16 @@ export function createDemoPortalData(): PortalData {
     materials: [],
     progress: [
       {
-        user_id: DEMO_USER_ID,
-        lesson_id: "demo-lesson-1",
+        user_id: TEST_USER_ID,
+        lesson_id: "test-lesson-1",
         completed: true,
         completed_at: now,
         position_seconds: 0,
         updated_at: now,
       },
       {
-        user_id: DEMO_USER_ID,
-        lesson_id: "demo-lesson-2",
+        user_id: TEST_USER_ID,
+        lesson_id: "test-lesson-2",
         completed: false,
         completed_at: null,
         position_seconds: 30,
@@ -179,34 +176,34 @@ export function createDemoPortalData(): PortalData {
     notes: [],
     library: [
       {
-        id: "demo-library-1",
+        id: "test-library-1",
         title: "Checklist de Boas-Vindas",
         description: "Passos para iniciar sua jornada dentro da comunidade.",
-        category_id: "demo-category-1",
+        category_id: "test-category-1",
         kind: "article",
         cover_url: null,
         tags: ["início"],
         file_path: null,
         file_name: null,
         url: null,
-        body: "## Checklist inicial\n\n- Explore os treinamentos.\n- Conclua a primeira aula.\n- Crie sua primeira anotação.\n\n*Material demonstrativo.*",
+        body: "## Checklist inicial\n\n- Explore os treinamentos.\n- Conclua a primeira aula.\n- Crie sua primeira anotação.",
         cohort_ids: [],
         status: "published",
         published_at: now,
         created_at: now,
       },
       {
-        id: "demo-library-2",
+        id: "test-library-2",
         title: "Guia de Organização",
         description: "Boas práticas para acompanhar seus estudos.",
-        category_id: "demo-category-1",
+        category_id: "test-category-1",
         kind: "article",
         cover_url: null,
         tags: ["planejamento"],
         file_path: null,
         file_name: null,
         url: null,
-        body: "## Organize seus estudos\n\nReserve um horário semanal e acompanhe seu progresso.\n\n*Material demonstrativo.*",
+        body: "## Organize seus estudos\n\nReserve um horário semanal e acompanhe seu progresso.",
         cohort_ids: [],
         status: "published",
         published_at: now,
@@ -214,11 +211,11 @@ export function createDemoPortalData(): PortalData {
       },
     ],
     categories: [
-      { id: "demo-category-1", name: "Guias e Materiais", position: 0, created_at: now },
+      { id: "test-category-1", name: "Guias e Materiais", position: 0, created_at: now },
     ],
     tools: [
       {
-        id: "demo-tool-1",
+        id: "test-tool-1",
         name: "Laboratório de Criativos",
         description: "Um espaço reservado para ferramentas exclusivas.",
         icon: "Sparkles",
@@ -233,7 +230,7 @@ export function createDemoPortalData(): PortalData {
         created_at: now,
       },
       {
-        id: "demo-tool-2",
+        id: "test-tool-2",
         name: "Análise de Campanhas",
         description: "Em preparação para os membros.",
         icon: "BarChart3",
@@ -250,7 +247,7 @@ export function createDemoPortalData(): PortalData {
     ],
     announcements: [
       {
-        id: "demo-announcement-1",
+        id: "test-announcement-1",
         title: "Bem-vindo à A ORDEM",
         body: "Este é um comunicado de exemplo para mostrar como seus mentorados verão as novidades da plataforma.",
         pinned: true,
@@ -259,7 +256,7 @@ export function createDemoPortalData(): PortalData {
         created_at: now,
       },
       {
-        id: "demo-announcement-2",
+        id: "test-announcement-2",
         title: "Novos conteúdos em breve",
         body: "Acompanhe as atualizações dos treinamentos e ferramentas exclusivas.",
         pinned: false,

@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminPage } from "@/components/portal/AdminPage";
-import { createDemoPortalData } from "@/lib/demo";
+import { createTestPortalData } from "@/test/fixtures";
 
 const mock = vi.hoisted(() => ({
   from: vi.fn(),
@@ -21,7 +21,7 @@ vi.mock("@/lib/media", () => ({ uploadMaterial: mock.upload, uploadMedia: vi.fn(
 const newLessonId = "11111111-1111-4111-8111-111111111111";
 const file = () => new File(["material de teste"], "guia.pdf", { type: "application/pdf" });
 
-function openModule(data = createDemoPortalData()) {
+function openModule(data = createTestPortalData()) {
   const props = {
     data,
     reload: vi.fn(async () => {}),
@@ -83,7 +83,7 @@ afterEach(() => {
 
 describe("Materiais complementares: seleção e envio", () => {
   it("desativa a seleção vazia e oferece criar a primeira aula", () => {
-    const data = createDemoPortalData();
+    const data = createTestPortalData();
     data.lessons = [];
     openModule(data);
     expect(screen.getByRole("combobox")).toBeDisabled();
@@ -96,7 +96,7 @@ describe("Materiais complementares: seleção e envio", () => {
   });
 
   it("cria a primeira aula, seleciona o registro salvo e envia o arquivo para essa aula", async () => {
-    const data = createDemoPortalData();
+    const data = createTestPortalData();
     const lesson = {
       ...data.lessons[0]!,
       id: newLessonId,
@@ -116,7 +116,7 @@ describe("Materiais complementares: seleção e envio", () => {
       expect(screen.getByRole("combobox", { name: "Aula do material" })).toHaveValue(newLessonId),
     );
     expect(mock.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({ title: lesson.title, module_id: "demo-module-1" }),
+      expect.objectContaining({ title: lesson.title, module_id: "test-module-1" }),
     );
     const selected = chooseFile();
     submitMaterial();
@@ -134,7 +134,7 @@ describe("Materiais complementares: seleção e envio", () => {
     openModule();
     expect(screen.getByRole("combobox", { name: "Aula do material" })).toHaveValue("");
     expect(screen.getByRole("button", { name: "Enviar arquivo" })).toBeDisabled();
-    selectLesson("demo-lesson-2");
+    selectLesson("test-lesson-2");
     fireEvent.change(screen.getByPlaceholderText("Título do material"), {
       target: { value: "Meu material" },
     });
@@ -142,21 +142,21 @@ describe("Materiais complementares: seleção e envio", () => {
     submitMaterial();
     await screen.findByText("Material adicionado.");
     expect(mock.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ lesson_id: "demo-lesson-2", title: "Meu material" }),
+      expect.objectContaining({ lesson_id: "test-lesson-2", title: "Meu material" }),
     );
-    expect(screen.getByRole("combobox", { name: "Aula do material" })).toHaveValue("demo-lesson-2");
+    expect(screen.getByRole("combobox", { name: "Aula do material" })).toHaveValue("test-lesson-2");
     expect(screen.getByPlaceholderText("Título do material")).toHaveValue("");
   });
 
   it("seleciona automaticamente a única aula disponível", () => {
-    const data = createDemoPortalData();
+    const data = createTestPortalData();
     data.lessons = [data.lessons[0]!];
     openModule(data);
-    expect(screen.getByRole("combobox", { name: "Aula do material" })).toHaveValue("demo-lesson-1");
+    expect(screen.getByRole("combobox", { name: "Aula do material" })).toHaveValue("test-lesson-1");
     expect(screen.getByRole("button", { name: "Enviar arquivo" })).toBeEnabled();
   });
 
-  it.each(["", "demo-lesson-3"])(
+  it.each(["", "test-lesson-3"])(
     "não envia para uma aula ausente ou de outro módulo: %s",
     async (id) => {
       openModule();
@@ -170,7 +170,7 @@ describe("Materiais complementares: seleção e envio", () => {
 
   it("mantém os campos e permite tentar novamente quando o armazenamento recusa o arquivo", async () => {
     openModule();
-    selectLesson("demo-lesson-2");
+    selectLesson("test-lesson-2");
     fireEvent.change(screen.getByPlaceholderText("Título do material"), {
       target: { value: "Preservar título" },
     });
@@ -179,7 +179,7 @@ describe("Materiais complementares: seleção e envio", () => {
     submitMaterial();
     await screen.findByText(/Upload indisponível/);
     expect(screen.getByPlaceholderText("Título do material")).toHaveValue("Preservar título");
-    expect(screen.getByRole("combobox", { name: "Aula do material" })).toHaveValue("demo-lesson-2");
+    expect(screen.getByRole("combobox", { name: "Aula do material" })).toHaveValue("test-lesson-2");
     expect(mock.insert).not.toHaveBeenCalled();
     submitMaterial();
     await screen.findByText("Material adicionado.");
@@ -188,7 +188,7 @@ describe("Materiais complementares: seleção e envio", () => {
 
   it("não exibe sucesso quando o banco recusa a referência do material", async () => {
     openModule();
-    selectLesson("demo-lesson-1");
+    selectLesson("test-lesson-1");
     chooseFile();
     mock.insert.mockResolvedValueOnce({ error: new Error("Referência recusada") });
     submitMaterial();
@@ -198,7 +198,7 @@ describe("Materiais complementares: seleção e envio", () => {
 
   it("seleciona a nova aula salva mesmo quando outra estava selecionada", async () => {
     const { props, view } = openModule();
-    selectLesson("demo-lesson-1");
+    selectLesson("test-lesson-1");
     const lesson = { ...props.data.lessons[0]!, id: newLessonId, title: "Nova aula" };
     props.reload.mockImplementation(async () => {
       props.data = { ...props.data, lessons: [...props.data.lessons, lesson] };
@@ -214,13 +214,13 @@ describe("Materiais complementares: seleção e envio", () => {
 
   it("limpa o formulário ao trocar de módulo e lista somente as aulas dele", () => {
     openModule();
-    selectLesson("demo-lesson-2");
+    selectLesson("test-lesson-2");
     fireEvent.change(screen.getByPlaceholderText("Título do material"), {
       target: { value: "Não reutilizar" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Módulos" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Abrir" })[1]!);
-    expect(screen.getByRole("combobox", { name: "Aula do material" })).toHaveValue("demo-lesson-3");
+    expect(screen.getByRole("combobox", { name: "Aula do material" })).toHaveValue("test-lesson-3");
     expect(
       screen.queryByRole("option", { name: "Organizando sua Jornada" }),
     ).not.toBeInTheDocument();

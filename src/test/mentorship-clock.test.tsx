@@ -41,7 +41,7 @@ describe("Atualização do prazo sem recarregar a página", () => {
     });
     expect(accountCanAccess(result.current.account!, result.current.now)).toBe(false);
   });
-  it("não consulta pagamentos durante a demonstração", async () => {
+  it("não consulta pagamentos quando a verificação está desativada", async () => {
     renderHook(() => useMentorshipAccount(null, false));
     await act(async () => {
       await Promise.resolve();

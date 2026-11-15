@@ -30,7 +30,6 @@ import ReactMarkdown from "react-markdown";
 import { AuthProvider, isMemberBlocked, useAuth } from "@/lib/auth";
 import { approvalState } from "@/lib/approval";
 import { authRedirectUrl } from "@/lib/auth-redirect";
-import { createDemoPortalData, DEMO_EMAIL, DEMO_MEMBER_NAME, DEMO_USER_ID } from "@/lib/demo";
 import { supabase } from "@/integrations/supabase/client";
 import { AccessScreen } from "./AccessScreen";
 import { AdminPage } from "./AdminPage";
@@ -160,8 +159,6 @@ function Portal() {
     clearPasswordSetup,
   } = useAuth();
   const [data, setData] = useState<PortalData>(emptyData);
-  const [demo, setDemo] = useState(false);
-  const [demoData, setDemoData] = useState<PortalData>(createDemoPortalData);
   const [page, setPage] = useState<View>("home");
   const [id, setId] = useState("");
   const [adminMode, setAdminMode] = useState(false);
@@ -192,7 +189,7 @@ function Portal() {
   const currentUserId = session?.user.id;
   const membership = useMentorshipAccount(
     currentUserId || null,
-    !!currentUserId && !isAdmin && !demo && !loading,
+    !!currentUserId && !isAdmin && !loading,
   );
   const memberAllowed =
     !!membership.account &&
@@ -269,7 +266,7 @@ function Portal() {
         }}
       />
     );
-  if (!session && !demo)
+  if (!session)
     return (
       <AccessScreen
         name={brandName}
@@ -280,7 +277,7 @@ function Portal() {
         onSuccess={() => void refresh()}
       />
     );
-  if (!demo && !isAdmin && session && (!membership.account || membership.error))
+  if (!isAdmin && session && (!membership.account || membership.error))
     return (
       <div className="min-h-screen grid place-content-center p-6 text-center">
         <p role={membership.error ? "alert" : "status"}>
@@ -296,7 +293,7 @@ function Portal() {
         </button>
       </div>
     );
-  if (!demo && !memberAllowed && !isAdmin)
+  if (!memberAllowed && !isAdmin)
     return (
       <div className="min-h-screen max-w-5xl mx-auto text-center p-6">
         <Shield className="size-10 mx-auto text-destructive mb-4" />
@@ -323,7 +320,7 @@ function Portal() {
         </button>
       </div>
     );
-  const menu = !demo && adminMode && isAdmin ? navAdmin : navStudent;
+  const menu = adminMode && isAdmin ? navAdmin : navStudent;
   const current =
     menu.find((x) => x.id === page)?.name || (page === "lesson" ? "Aula" : "Treinamento");
   const name = brandName;
@@ -356,7 +353,7 @@ function Portal() {
           </button>
         </div>
         <div className="px-4 pt-6 pb-2 text-[11px] text-muted-foreground font-semibold uppercase tracking-widest">
-          {!demo && adminMode ? "Administração" : "Área do mentorado"}
+          {adminMode ? "Administração" : "Área do mentorado"}
         </div>
         <nav className="p-3 flex-1 space-y-1 overflow-y-auto">
           {menu.map((item) => (
@@ -375,7 +372,7 @@ function Portal() {
             </button>
           ))}
         </nav>
-        {!demo && isAdmin && (
+        {isAdmin && (
           <button
             onClick={() => {
               setAdminMode(!adminMode);
@@ -389,19 +386,12 @@ function Portal() {
         )}
         <div className="border-t border-sidebar-border p-4">
           <p className="font-medium text-sm truncate">
-            {demo ? DEMO_MEMBER_NAME : profile?.full_name || session?.user.email}
+            {profile?.full_name || session?.user.email}
           </p>
-          <p className="text-xs text-muted-foreground truncate mt-1">
-            {demo ? DEMO_EMAIL : session?.user.email}
-          </p>
+          <p className="text-xs text-muted-foreground truncate mt-1">{session?.user.email}</p>
           <button
             className="text-muted-foreground text-sm flex items-center gap-2 mt-4 hover:text-foreground"
-            onClick={() => {
-              if (demo) {
-                setDemo(false);
-                navigate("home");
-              } else void supabase.auth.signOut();
-            }}
+            onClick={() => void supabase.auth.signOut()}
           >
             <LogOut className="size-4" />
             Sair da conta
@@ -415,7 +405,7 @@ function Portal() {
               <Menu />
             </button>
             <span className="text-sm text-muted-foreground">
-              {!demo && adminMode ? "Administração" : "Mentoria"}{" "}
+              {adminMode ? "Administração" : "Mentoria"}{" "}
               <ChevronRight className="inline size-3" />{" "}
               <span className="text-foreground">{current}</span>
             </span>
@@ -430,30 +420,13 @@ function Portal() {
             </button>
             {fetching && <LoaderCircle className="size-4 animate-spin text-primary" />}
             <span className="size-9 rounded-full bg-primary/15 text-primary flex items-center justify-center font-semibold">
-              {(demo ? DEMO_MEMBER_NAME : profile?.full_name || "M").charAt(0).toUpperCase()}
+              {(profile?.full_name || "M").charAt(0).toUpperCase()}
             </span>
           </div>
         </header>
         <main className="max-w-[1440px] mx-auto p-5 sm:p-9 space-y-6">
-          {demo && (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm">
-              <span>
-                <strong>Prévia de mentorado</strong> · Dados fictícios, sem acesso às contas ou
-                aulas reais.
-              </span>
-              <button
-                onClick={() => {
-                  setDemo(false);
-                  navigate("home");
-                }}
-                className="text-primary font-semibold hover:underline"
-              >
-                Encerrar demonstração
-              </button>
-            </div>
-          )}
-          {!demo && error && <Alert message={error} />}
-          {!demo && adminMode && isAdmin ? (
+          {error && <Alert message={error} />}
+          {adminMode && isAdmin ? (
             <AdminPage
               page={page}
               data={data}
@@ -466,50 +439,15 @@ function Portal() {
             <MemberPage
               page={page}
               id={id}
-              data={demo ? demoData : data}
+              data={data}
               reload={reload}
               go={navigate}
-              userId={demo ? DEMO_USER_ID : session?.user.id || ""}
-              isAdmin={!demo && isAdmin}
-              name={demo ? DEMO_MEMBER_NAME : profile?.full_name || ""}
+              userId={session?.user.id || ""}
+              isAdmin={isAdmin}
+              name={profile?.full_name || ""}
               welcome={
                 settings?.welcome_message ||
                 "Seu ambiente de conhecimento, estratégias e ferramentas exclusivas."
-              }
-              demo={demo}
-              onDemoProgress={(lessonId, completed, seconds) =>
-                setDemoData((old) => {
-                  const previous = old.progress.find((p) => p.lesson_id === lessonId);
-                  const updated: Row<"lesson_progress"> = {
-                    user_id: DEMO_USER_ID,
-                    lesson_id: lessonId,
-                    completed,
-                    completed_at: completed ? new Date().toISOString() : null,
-                    position_seconds: Math.floor(seconds),
-                    updated_at: new Date().toISOString(),
-                  };
-                  return {
-                    ...old,
-                    progress: [
-                      ...old.progress.filter((p) => p.lesson_id !== lessonId),
-                      { ...previous, ...updated },
-                    ],
-                  };
-                })
-              }
-              onDemoNote={(lessonId, content) =>
-                setDemoData((old) => ({
-                  ...old,
-                  notes: [
-                    ...old.notes.filter((n) => n.lesson_id !== lessonId),
-                    {
-                      user_id: DEMO_USER_ID,
-                      lesson_id: lessonId,
-                      content,
-                      updated_at: new Date().toISOString(),
-                    },
-                  ],
-                }))
               }
             />
           )}
@@ -529,9 +467,6 @@ function MemberPage({
   isAdmin,
   name,
   welcome,
-  demo = false,
-  onDemoProgress,
-  onDemoNote,
 }: {
   page: View;
   id: string;
@@ -542,48 +477,14 @@ function MemberPage({
   isAdmin: boolean;
   name: string;
   welcome: string;
-  demo?: boolean;
-  onDemoProgress?: ((lessonId: string, completed: boolean, seconds: number) => void) | undefined;
-  onDemoNote?: ((lessonId: string, content: string) => void) | undefined;
 }) {
   const { profile, refresh } = useAuth();
   const [feedback, setFeedback] = useState("");
   const available = data.trainings.filter((t) => isAdmin || t.status === "published");
   const lessons = data.lessons.filter((l) => isAdmin || l.status === "published");
   const completed = data.progress.filter((p) => p.completed).length;
-  if (page === "recordings")
-    return demo ? (
-      <Empty
-        title="Minhas gravações"
-        description="As calls são privadas e aparecem somente na conta autenticada de cada mentorado."
-      />
-    ) : (
-      <RecordingsPanel key={userId} userId={userId} />
-    );
-  if (page === "billing")
-    return demo ? (
-      <Empty
-        title="Meu plano e pagamentos"
-        description="Os dados financeiros reais ficam disponíveis somente na conta autenticada do mentorado."
-      />
-    ) : (
-      <MentorshipPanel key={userId} userId={userId} />
-    );
-  if (page === "profile" && demo)
-    return (
-      <div>
-        <Heading title="Meu perfil" subtitle="Visualização do perfil de um mentorado." />
-        <div className="surface p-6 max-w-xl space-y-3">
-          <p className="text-sm text-muted-foreground">Nome</p>
-          <p className="font-semibold">{DEMO_MEMBER_NAME}</p>
-          <p className="text-sm text-muted-foreground">E-mail</p>
-          <p>{DEMO_EMAIL}</p>
-          <p className="text-xs text-primary pt-3">
-            Perfil demonstrativo. Nenhuma alteração será enviada ao banco de dados.
-          </p>
-        </div>
-      </div>
-    );
+  if (page === "recordings") return <RecordingsPanel key={userId} userId={userId} />;
+  if (page === "billing") return <MentorshipPanel key={userId} userId={userId} />;
   if (page === "profile")
     return (
       <div>
@@ -690,17 +591,7 @@ function MemberPage({
   }
   if (page === "lesson")
     return (
-      <LessonPage
-        key={id}
-        id={id}
-        data={data}
-        reload={reload}
-        go={go}
-        userId={userId}
-        demo={demo}
-        onDemoProgress={onDemoProgress}
-        onDemoNote={onDemoNote}
-      />
+      <LessonPage key={id} id={id} data={data} reload={reload} go={go} userId={userId} />
     );
   if (page === "trainings")
     return (
@@ -963,18 +854,12 @@ function LessonPage({
   reload,
   go,
   userId,
-  demo = false,
-  onDemoProgress,
-  onDemoNote,
 }: {
   id: string;
   data: PortalData;
   reload: () => Promise<void>;
   go: (v: View, id?: string) => void;
   userId: string;
-  demo?: boolean;
-  onDemoProgress?: ((lessonId: string, completed: boolean, seconds: number) => void) | undefined;
-  onDemoNote?: ((lessonId: string, content: string) => void) | undefined;
 }) {
   const lesson = data.lessons.find((l) => l.id === id);
   const module = data.modules.find((m) => m.id === lesson?.module_id);
@@ -995,11 +880,6 @@ function LessonPage({
   const previousLesson = index > 0 ? siblings[index - 1] : undefined;
   const nextLesson = index >= 0 ? siblings[index + 1] : undefined;
   const saveProgress = async (completed: boolean, seconds = existing?.position_seconds || 0) => {
-    if (demo) {
-      onDemoProgress?.(id, completed, seconds);
-      setNotice("Progresso atualizado apenas na demonstração.");
-      return;
-    }
     const { error } = await supabase.from("lesson_progress").upsert({
       lesson_id: id,
       user_id: userId,
@@ -1102,11 +982,6 @@ function LessonPage({
             <button
               className="portal-button mt-3"
               onClick={async () => {
-                if (demo) {
-                  onDemoNote?.(id, note);
-                  setNotice("Anotação salva apenas nesta demonstração.");
-                  return;
-                }
                 const { error } = await supabase.from("lesson_notes").upsert({
                   user_id: userId,
                   lesson_id: id,

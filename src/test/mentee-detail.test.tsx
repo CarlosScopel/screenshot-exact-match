@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminPage } from "@/components/portal/AdminPage";
 import { APPLICATION_PENDING } from "@/lib/approval";
-import { createDemoPortalData } from "@/lib/demo";
+import { createTestPortalData } from "@/test/fixtures";
 import type { Row } from "@/lib/portal";
 
 const mock = vi.hoisted(() => ({ from: vi.fn(), update: vi.fn(), eq: vi.fn(), review: vi.fn() }));
@@ -48,7 +48,7 @@ function profile(id: string, full_name: string, email: string, pending = false):
   };
 }
 function mount() {
-  const data = createDemoPortalData();
+  const data = createTestPortalData();
   data.profiles = [
     profile(ids[0], "Ana Teste", "ana@example.invalid"),
     profile(ids[1], "Bruno Teste", "bruno@example.invalid"),

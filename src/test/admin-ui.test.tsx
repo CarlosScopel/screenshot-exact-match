@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminPage } from "@/components/portal/AdminPage";
-import { createDemoPortalData } from "@/lib/demo";
+import { createTestPortalData } from "@/test/fixtures";
 import { APPLICATION_PENDING } from "@/lib/approval";
 const mock = vi.hoisted(() => ({ from: vi.fn(), review: vi.fn(), upload: vi.fn() }));
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { from: mock.from } }));
@@ -36,7 +36,7 @@ function query(result = { data: { id: uid }, error: null as Error | null }) {
   return q;
 }
 const props = () => ({
-  data: createDemoPortalData(),
+  data: createTestPortalData(),
   reload,
   go: vi.fn(),
   settings: null,
@@ -111,7 +111,7 @@ describe("Painel administrativo com persistência simulada (sem dados reais)", (
     expect(q.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "Aula de teste",
-        module_id: "demo-module-1",
+        module_id: "test-module-1",
         video_url: "https://example.test/aula.mp4",
         status: "draft",
       }),

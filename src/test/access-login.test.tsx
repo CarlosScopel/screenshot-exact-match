@@ -8,7 +8,9 @@ vi.mock("@/integrations/supabase/client", () => ({
 vi.mock("@/lib/admin.functions", () => ({ requestMenteeAccess: mocks.requestMenteeAccess }));
 vi.mock("@/lib/media", () => ({ useMedia: () => null }));
 import { AccessScreen } from "@/components/portal/AccessScreen";
-import { DEMO_EMAIL, DEMO_PASSWORD } from "@/lib/demo";
+
+const FORMER_DEMO_EMAIL = "mentorado@demo.aordem";
+const FORMER_DEMO_PASSWORD = "OrdemDemo2026!";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -22,14 +24,14 @@ describe("Real account entry", () => {
     const onSuccess = vi.fn();
     render(<AccessScreen name="A ORDEM" onSuccess={onSuccess} />);
     fireEvent.change(await screen.findByRole("textbox", { name: "E-mail" }), {
-      target: { value: DEMO_EMAIL },
+      target: { value: FORMER_DEMO_EMAIL },
     });
-    fireEvent.change(screen.getByLabelText("Senha"), { target: { value: DEMO_PASSWORD } });
+    fireEvent.change(screen.getByLabelText("Senha"), { target: { value: FORMER_DEMO_PASSWORD } });
     fireEvent.click(screen.getByRole("button", { name: "Entrar na plataforma" }));
     await waitFor(() =>
       expect(mocks.signInWithPassword).toHaveBeenCalledWith({
-        email: DEMO_EMAIL,
-        password: DEMO_PASSWORD,
+        email: FORMER_DEMO_EMAIL,
+        password: FORMER_DEMO_PASSWORD,
       }),
     );
     await waitFor(() =>
