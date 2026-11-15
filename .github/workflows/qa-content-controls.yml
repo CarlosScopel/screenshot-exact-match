@@ -1,0 +1,66 @@
+name: QA content editing and deletion
+on:
+  push:
+    branches: [qa/content-edit-delete-20261115]
+    paths: [.github/workflows/qa-content-controls.yml]
+permissions:
+  contents: write
+jobs:
+  controls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Apply only inspected source changes
+        run: |
+          mkdir -p evidence
+          python3 - <<'PY'
+          import base64,gzip,pathlib
+          patch=gzip.decompress(base64.b64decode(pathlib.Path('qa/content-edit-delete.patch.gz.b64').read_text()))
+          pathlib.Path('/tmp/content.patch').write_bytes(patch)
+          PY
+          git apply --check /tmp/content.patch
+          git apply /tmp/content.patch
+          bun install --frozen-lockfile
+          bunx --no-install prettier --write src/lib/content-admin.functions.ts src/components/portal/RecordingsPanel.tsx src/components/portal/AdminPage.tsx src/components/portal/LessonMaterialActions.tsx src/test/content-admin.test.ts src/test/material-actions.test.tsx src/test/recordings-panel.test.tsx
+          git diff --stat > evidence/changes.txt
+      - name: TypeScript
+        run: bunx --no-install tsc --noEmit 2>&1 | tee evidence/typescript.log
+      - name: All unit and component tests
+        if: '!cancelled()'
+        run: bun run test --reporter=default --reporter=json --outputFile=evidence/vitest.json 2>&1 | tee evidence/tests.log
+      - name: Lint changed source and tests
+        if: '!cancelled()'
+        run: bunx --no-install eslint src/lib/content-admin.functions.ts src/components/portal/RecordingsPanel.tsx src/components/portal/AdminPage.tsx src/components/portal/LessonMaterialActions.tsx src/test/content-admin.test.ts src/test/material-actions.test.tsx src/test/recordings-panel.test.tsx 2>&1 | tee evidence/lint.log
+      - name: Production build
+        run: bun run build 2>&1 | tee evidence/build.log
+      - name: Isolated browser tooling
+        run: |
+          npm install --prefix "$RUNNER_TEMP/qa-browser" --no-save --package-lock=false playwright
+          node "$RUNNER_TEMP/qa-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Actual controls on desktop and mobile with mocked backend
+        run: PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/qa-browser/node_modules/playwright/index.mjs" node qa/validate-content-ui.mjs
+      - name: Commit only verified application files to QA branch
+        run: |
+          git config user.name 'Carlos Scopel'
+          git config user.email '134417730+CarlosScopel@users.noreply.github.com'
+          git add src/lib/content-admin.functions.ts src/components/portal/RecordingsPanel.tsx src/components/portal/AdminPage.tsx src/components/portal/LessonMaterialActions.tsx src/test/content-admin.test.ts src/test/material-actions.test.tsx src/test/recordings-panel.test.tsx
+          git diff --cached --stat
+          git commit -m 'test: preservar alteracoes verificadas de controle de publicacoes'
+          git push origin HEAD:qa/content-edit-delete-20261115
+          git rev-parse HEAD > evidence/verified-commit.txt
+      - name: Evidence without environment or credentials
+        if: always()
+        run: |
+          git diff -- src > evidence/source.diff
+          tar -czf evidence/changed-source.tar.gz src/lib/content-admin.functions.ts src/components/portal/RecordingsPanel.tsx src/components/portal/AdminPage.tsx src/components/portal/LessonMaterialActions.tsx src/test/content-admin.test.ts src/test/material-actions.test.tsx src/test/recordings-panel.test.tsx
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: content-controls-evidence
+          path: evidence/
+          retention-days: 7
