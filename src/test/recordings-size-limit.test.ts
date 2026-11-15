@@ -25,7 +25,10 @@ const reply = (status: number, values: Record<string, string> = {}) => ({
   ok: status >= 200 && status < 300,
   headers: { get: (name: string) => values[name] ?? null },
 });
-beforeEach(() => sessionStorage.clear());
+beforeEach(() => {
+  sessionStorage.clear();
+  localStorage.clear();
+});
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Limite de gravação de 5 GB", () => {
@@ -69,10 +72,10 @@ describe("Limite de gravação de 5 GB", () => {
       onProgress,
     });
     expect(fetchMock.mock.calls.map((call) => call[1].method)).toEqual(["HEAD", "PATCH", "PATCH"]);
-    expect(fetchMock.mock.calls[1][1].headers["Upload-Offset"]).toBe(String(offset));
-    expect(fetchMock.mock.calls[1][1].body.size).toBe(RECORDING_CHUNK_BYTES);
-    expect(fetchMock.mock.calls[2][1].headers["Upload-Offset"]).toBe(String(file.size - 9));
-    expect(fetchMock.mock.calls[2][1].body.size).toBe(9);
+    expect(fetchMock.mock.calls[1]?.[1].headers["Upload-Offset"]).toBe(String(offset));
+    expect(fetchMock.mock.calls[1]?.[1].body.size).toBe(RECORDING_CHUNK_BYTES);
+    expect(fetchMock.mock.calls[2]?.[1].headers["Upload-Offset"]).toBe(String(file.size - 9));
+    expect(fetchMock.mock.calls[2]?.[1].body.size).toBe(9);
     expect(onProgress).toHaveBeenLastCalledWith(5 * GB, 5 * GB);
   });
 });

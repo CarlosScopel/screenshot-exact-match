@@ -2,12 +2,25 @@ import { supabase } from "@/integrations/supabase/client";
 import { RECORDING_BUCKET, validateRecordingFile, type CallRecording } from "./recordings";
 
 export const RECORDING_CHUNK_BYTES = 6 * 1024 * 1024;
-type UploadOptions = { signal: AbortSignal; onProgress: (done: number, total: number) => void };
+export const RECORDING_REQUEST_TIMEOUT_MS = 120_000;
+type UploadOptions = {
+  signal: AbortSignal;
+  onProgress: (done: number, total: number) => void;
+  expectedUserId?: string;
+};
 type Resume = { url: string; name: string; size: number; modified: number };
 const key = (path: string) => `ordem:call-upload:${path}`;
 function stored(path: string): Resume | null {
   try {
-    return JSON.parse(sessionStorage.getItem(key(path)) || "null") as Resume | null;
+    const raw = sessionStorage.getItem(key(path)) || localStorage.getItem(key(path));
+    const value = JSON.parse(raw || "null") as Resume | null;
+    return value &&
+      typeof value.url === "string" &&
+      typeof value.name === "string" &&
+      Number.isSafeInteger(value.size) &&
+      Number.isFinite(value.modified)
+      ? value
+      : null;
   } catch {
     return null;
   }
@@ -18,12 +31,22 @@ function remember(path: string, data: Resume) {
   } catch {
     /* Upload still works without session storage. */
   }
+  try {
+    localStorage.setItem(key(path), JSON.stringify(data));
+  } catch {
+    /* Optional persistence. */
+  }
 }
 export function clearRecordingUpload(path: string) {
   try {
     sessionStorage.removeItem(key(path));
   } catch {
-    /* No persistent upload state. */
+    /* No session upload state. */
+  }
+  try {
+    localStorage.removeItem(key(path));
+  } catch {
+    /* Optional persistence. */
   }
 }
 /**
@@ -109,6 +132,28 @@ async function pause(ms: number, signal: AbortSignal) {
     signal.addEventListener("abort", abort, { once: true });
   });
 }
+async function waitForConnection(signal: AbortSignal) {
+  signal.throwIfAborted();
+  if (typeof navigator === "undefined" || navigator.onLine !== false) return;
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      window.removeEventListener("online", online);
+      signal.removeEventListener("abort", abort);
+    };
+    const online = () => {
+      cleanup();
+      resolve();
+    };
+    const abort = () => {
+      cleanup();
+      reject(signal.reason);
+    };
+    window.addEventListener("online", online, { once: true });
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+    else if (navigator.onLine) online();
+  });
+}
 /** Minimal TUS 1.0 client: sequential 6 MB chunks, authoritative offsets and retry without overwrite. */
 export async function tusRecordingUpload(
   file: File,
@@ -129,17 +174,62 @@ export async function tusRecordingUpload(
       ? safeUploadLocation(resume.url, endpoint)
       : "";
   const request = async (target: string, init: RequestInit) => {
+    await waitForConnection(signal);
     signal.throwIfAborted();
-    return fetch(target, {
-      ...init,
-      signal,
-      redirect: "error",
-      headers: { ...(await headers()), "Tus-Resumable": "1.0.0", ...init.headers },
+    const controller = new AbortController();
+    let rejectDeadline: (reason: unknown) => void = () => {};
+    const deadline = new Promise<never>((_, reject) => {
+      rejectDeadline = reject;
     });
+    const abort = () => {
+      controller.abort(signal.reason);
+      rejectDeadline(signal.reason);
+    };
+    const timer = setTimeout(() => {
+      const error = new DOMException(
+        "O servidor não respondeu. Tentando retomar o envio.",
+        "TimeoutError",
+      );
+      controller.abort(error);
+      rejectDeadline(error);
+    }, RECORDING_REQUEST_TIMEOUT_MS);
+    signal.addEventListener("abort", abort, { once: true });
+    try {
+      return await Promise.race([
+        (async () => {
+          const authHeaders = await headers();
+          controller.signal.throwIfAborted();
+          return fetch(target, {
+            ...init,
+            signal: controller.signal,
+            redirect: "error",
+            headers: { ...authHeaders, "Tus-Resumable": "1.0.0", ...init.headers },
+          });
+        })(),
+        deadline,
+      ]);
+    } finally {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
+    }
+  };
+  // HEAD is safe to retry. Never resend a failed PATCH until the server confirms its offset.
+  const head = async (): Promise<Response> => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const response = await request(url, { method: "HEAD" });
+        if (response.status === 429 || response.status >= 500) throw errorFor(response.status);
+        return response;
+      } catch (error) {
+        if (signal.aborted || attempt >= 3) throw error;
+        await waitForConnection(signal);
+        await pause(1000 * 2 ** attempt, signal);
+      }
+    }
   };
   const getOffset = async () => {
-    const response = await request(url, { method: "HEAD" });
-    if (!response.ok) throw errorFor(response.status);
+    const response = await head();
+    if (!response.ok) throw Object.assign(errorFor(response.status), { terminal: true });
     const raw = response.headers.get("Upload-Offset");
     const value = raw === null ? NaN : Number(raw);
     if (!Number.isSafeInteger(value) || value < 0 || value > file.size)
@@ -148,7 +238,7 @@ export async function tusRecordingUpload(
   };
   let offset = 0;
   if (url) {
-    const response = await request(url, { method: "HEAD" });
+    const response = await head();
     if (response.status === 404 || response.status === 410) {
       clearRecordingUpload(path);
       url = "";
@@ -205,6 +295,7 @@ export async function tusRecordingUpload(
     } catch (error) {
       if (signal.aborted || (error instanceof Error && "terminal" in error) || ++failures > 3)
         throw error;
+      await waitForConnection(signal);
       await pause(1000 * 2 ** (failures - 1), signal);
       offset = await getOffset();
       onProgress(offset, file.size);
@@ -232,7 +323,11 @@ export async function uploadRecordingFile(
     `${base}/storage/v1/upload/resumable`,
     async () => {
       const { data, error } = await supabase.auth.getSession();
-      if (error || !data.session)
+      if (
+        error ||
+        !data.session ||
+        (options.expectedUserId && data.session.user.id !== options.expectedUserId)
+      )
         throw new Error("Entre novamente como administrador para enviar a gravação.");
       return {
         Authorization: `Bearer ${data.session.access_token}`,

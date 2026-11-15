@@ -20,6 +20,7 @@ function options() {
 }
 beforeEach(() => {
   sessionStorage.clear();
+  localStorage.clear();
   vi.resetAllMocks();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -245,5 +246,102 @@ describe("Endereços TUS atrás do proxy de armazenamento", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0]?.[0]).toBe(endpoint + "/id");
     expect(fetchMock.mock.calls[0]?.[1].method).toBe("HEAD");
+  });
+});
+
+describe("Retomada resiliente após troca de aba e interrupções", () => {
+  it("recupera referência persistida após recarregar a página", async () => {
+    const file = new File(["abcd"], "call.mp4", { lastModified: 100 });
+    localStorage.setItem(
+      `ordem:call-upload:${path}`,
+      JSON.stringify({ url: endpoint + "/resume-id", name: file.name, size: 4, modified: 100 }),
+    );
+    fetchMock
+      .mockResolvedValueOnce(response(200, { "Upload-Offset": "3" }))
+      .mockResolvedValueOnce(response(204, { "Upload-Offset": "4" }));
+    await tusRecordingUpload(file, path, "video/mp4", endpoint, headers, options());
+    expect(fetchMock.mock.calls.map((call) => call[1].method)).toEqual(["HEAD", "PATCH"]);
+    expect(fetchMock.mock.calls[1]![1].body.size).toBe(1);
+    clearRecordingUpload(path);
+    expect(localStorage.getItem(`ordem:call-upload:${path}`)).toBeNull();
+  });
+  it("não desiste se a consulta de retomada falhar temporariamente", async () => {
+    vi.useFakeTimers();
+    const file = new File(["abcd"], "call.mp4");
+    fetchMock
+      .mockResolvedValueOnce(response(201, { Location: endpoint + "/id" }))
+      .mockRejectedValueOnce(new TypeError("network interrupted"))
+      .mockResolvedValueOnce(response(503))
+      .mockRejectedValueOnce(new TypeError("still reconnecting"))
+      .mockResolvedValueOnce(response(200, { "Upload-Offset": "4" }));
+    const upload = tusRecordingUpload(file, path, "video/mp4", endpoint, headers, options());
+    await vi.runAllTimersAsync();
+    await upload;
+    expect(fetchMock.mock.calls.map((call) => call[1].method)).toEqual([
+      "POST",
+      "PATCH",
+      "HEAD",
+      "HEAD",
+      "HEAD",
+    ]);
+  });
+  it("aguarda conexão sem gastar tentativas e continua ao reconectar", async () => {
+    const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    fetchMock
+      .mockResolvedValueOnce(response(201, { Location: endpoint + "/id" }))
+      .mockResolvedValueOnce(response(204, { "Upload-Offset": "1" }));
+    const upload = tusRecordingUpload(
+      new File(["a"], "call.mp4"),
+      path,
+      "video/mp4",
+      endpoint,
+      headers,
+      options(),
+    );
+    await Promise.resolve();
+    expect(fetchMock).not.toHaveBeenCalled();
+    online.mockReturnValue(true);
+    window.dispatchEvent(new Event("online"));
+    await upload;
+    online.mockRestore();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+  it("pausar sem conexão encerra a espera imediatamente", async () => {
+    const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    const controller = new AbortController();
+    const upload = tusRecordingUpload(
+      new File(["a"], "call.mp4"),
+      path,
+      "video/mp4",
+      endpoint,
+      headers,
+      { signal: controller.signal, onProgress: vi.fn() },
+    );
+    const rejected = expect(upload).rejects.toThrow();
+    controller.abort();
+    await rejected;
+    expect(fetchMock).not.toHaveBeenCalled();
+    online.mockRestore();
+  });
+  it("um bloco travado tem prazo e sincroniza os bytes já aceitos antes de continuar", async () => {
+    vi.useFakeTimers();
+    const opts = options();
+    fetchMock
+      .mockResolvedValueOnce(response(201, { Location: endpoint + "/id" }))
+      .mockImplementationOnce(() => new Promise(() => {}))
+      .mockResolvedValueOnce(response(200, { "Upload-Offset": "4" }));
+    const upload = tusRecordingUpload(
+      new File(["abcd"], "call.mp4"),
+      path,
+      "video/mp4",
+      endpoint,
+      headers,
+      opts,
+    );
+    await vi.runAllTimersAsync();
+    await upload;
+    expect(fetchMock.mock.calls[1]![1].signal.aborted).toBe(true);
+    expect(fetchMock.mock.calls.map((call) => call[1].method)).toEqual(["POST", "PATCH", "HEAD"]);
+    expect(opts.onProgress).toHaveBeenLastCalledWith(4, 4);
   });
 });

@@ -36,6 +36,7 @@ import { AdminPage } from "./AdminPage";
 import { LessonFiles } from "./LessonFiles";
 import { MentorshipPanel } from "./MentorshipPanel";
 import { RecordingsPanel } from "./RecordingsPanel";
+import { RecordingTransferStatus } from "./RecordingTransferStatus";
 import { accountCanAccess } from "@/lib/mentorship";
 import { useMentorshipAccount } from "@/lib/use-mentorship";
 import { inviteMentee } from "@/lib/admin.functions";
@@ -452,6 +453,7 @@ function Portal() {
             />
           )}
         </main>
+        {isAdmin && <RecordingTransferStatus ownerId={session.user.id} />}
       </div>
     </div>
   );

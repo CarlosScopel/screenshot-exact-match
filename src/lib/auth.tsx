@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import { activateOwnerAccess } from "@/lib/owner.functions";
 import { loadPlatformSettings } from "@/lib/platform-settings";
+import { setRecordingUploadOwner } from "@/lib/recording-transfers";
 
 type Profile = Tables<"profiles">;
 type Settings = Tables<"platform_settings">;
@@ -48,6 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loadVersion = useRef(0);
   const settingsVersion = useRef(0);
   const signedIn = useRef(false);
+  const sessionUserId = useRef<string | null>(null);
 
   const loadUser = useCallback(async (s: Session | null) => {
     const version = ++loadVersion.current;
@@ -91,44 +93,81 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    let alive = true;
+    let authEvents = 0;
     const linkType =
       new URLSearchParams(window.location.hash.slice(1)).get("type") ||
       new URLSearchParams(window.location.search).get("type");
     if (linkType === "invite" || linkType === "recovery") setRequiresPasswordSetup(true);
     refreshSettings();
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+      if (!alive) return;
+      authEvents++;
+      const nextUserId = s?.user.id ?? null;
+      const sameUser = sessionUserId.current === nextUserId;
+      sessionUserId.current = nextUserId;
+      setRecordingUploadOwner(nextUserId);
       signedIn.current = !!s;
+      setSession(s);
+      // Supabase emits SIGNED_IN when a tab regains focus. Do not tear down an
+      // unchanged user's forms/uploads or reload permissions on token refresh.
+      if (sameUser && (event === "SIGNED_IN" || event === "TOKEN_REFRESHED")) return;
+      if (!sameUser) {
+        ++loadVersion.current;
+        setProfile(null);
+        setRoles([]);
+        setLoading(!!s);
+      }
       ++settingsVersion.current;
       setSettings(null);
       setSession(s);
       if (event === "PASSWORD_RECOVERY") setRequiresPasswordSetup(true);
       if (event === "SIGNED_OUT") setRequiresPasswordSetup(false);
       if (
+        event === "INITIAL_SESSION" ||
         event === "SIGNED_IN" ||
         event === "USER_UPDATED" ||
         event === "SIGNED_OUT" ||
         event === "PASSWORD_RECOVERY"
       ) {
         setTimeout(() => {
+          if (!alive || sessionUserId.current !== nextUserId) return;
           loadUser(s);
           refreshSettings();
         }, 0);
       }
     });
+    const initialEvents = authEvents;
     supabase.auth
       .getSession()
       .then(async ({ data }) => {
+        if (!alive || authEvents !== initialEvents) return;
+        sessionUserId.current = data.session?.user.id ?? null;
+        setRecordingUploadOwner(sessionUserId.current);
         signedIn.current = !!data.session;
         setSession(data.session);
         await refreshSettings();
+        if (
+          !alive ||
+          authEvents !== initialEvents ||
+          sessionUserId.current !== (data.session?.user.id ?? null)
+        )
+          return;
         await loadUser(data.session);
         if (data.session) supabase.rpc("touch_last_seen");
       })
       .catch(() => {
+        if (!alive || authEvents !== initialEvents) return;
         setAccessError("Não foi possível recuperar a sessão. Tente entrar novamente.");
         setLoading(false);
       });
-    return () => sub.subscription.unsubscribe();
+    return () => {
+      alive = false;
+      sub.subscription.unsubscribe();
+      setRecordingUploadOwner(null);
+      ++loadVersion.current;
+      ++settingsVersion.current;
+    };
   }, [loadUser, refreshSettings]);
 
   useEffect(() => {
