@@ -1,0 +1,47 @@
+name: Verify billing observation publication
+on:
+  push:
+    branches: [qa/private-billing-observation-20261115]
+    paths: [.github/workflows/qa-observation-publication.yml]
+permissions:
+  contents: read
+jobs:
+  published:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check public hosting without credentials or account mutations
+        run: |
+          mkdir -p evidence
+          python3 - <<'PY'
+          import urllib.request,urllib.error,urllib.parse,re,json,time
+          base='https://aordemx.lovable.app'
+          report={'commit':'d3b8f13af3ce2564cc51bccd052cf050f3ebb966','url':base,'status':'not_confirmed','account_access':False}
+          def get(url):
+            try:
+              with urllib.request.urlopen(urllib.request.Request(url,headers={'User-Agent':'A-ORDEM-publication-check'}),timeout=15) as r:return r.status,r.read().decode('utf8','replace')
+            except urllib.error.HTTPError as e:return e.code,''
+          try:
+            code,html=get(base);report['http_status']=code
+            if code in (401,403): report['status']='restricted_external_access'
+            elif code==200:
+              assets=set(re.findall(r'(?:src|href)=[\"\']([^\"\']+\.js)[\"\']',html));text=''
+              for item in list(assets)[:20]:
+                status,js=get(urllib.parse.urljoin(base,item));text+=js
+                for part in re.findall(r'[\"\'](\.?/?[^\"\']+\.js)[\"\']',js):
+                  if '/assets/' in part or part.startswith('./'):assets.add(urllib.parse.urljoin(urllib.parse.urljoin(base,item),part))
+              for item in list(assets)[:40]:
+                status,js=get(urllib.parse.urljoin(base,item));text+=js
+              report['reader_present']='mentorship_get_observation' in text
+              report['writer_present']='mentorship_save_observation' in text
+              if report['reader_present'] and report['writer_present']:report['status']='new_code_confirmed'
+            else:report['status']='unexpected_http_status'
+          except Exception as e:report['error']=str(e)
+          open('evidence/publication.json','w').write(json.dumps(report,indent=2))
+          print(json.dumps(report,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: billing-observation-publication
+          path: evidence/publication.json
+          retention-days: 7
