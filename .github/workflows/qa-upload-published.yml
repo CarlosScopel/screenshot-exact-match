@@ -1,0 +1,54 @@
+name: QA upload continuity publication
+on:
+  push:
+    branches: [qa/upload-continuity-20261115]
+    paths: [.github/workflows/qa-upload-published.yml]
+permissions:
+  contents: read
+jobs:
+  published:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check published application assets read only
+        run: |
+          mkdir -p evidence
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const base='https://aordemx.lovable.app';
+          const report={commit:'6f1a2c300e1178747e19ceab3ce959e1dc9619d8',url:base,published:false,authenticated:false,productionUploadPerformed:false};
+          const get=url=>fetch(url,{signal:AbortSignal.timeout(10000)});
+          for(let attempt=0;attempt<12;attempt++){
+            try{
+              const r=await get(base);report.httpStatus=r.status;
+              if([401,403].includes(r.status)){report.blocked='Restricted access';break;}
+              if(!r.ok)throw new Error('Unexpected HTTP '+r.status);
+              const html=await r.text();
+              const todo=[...html.matchAll(/(?:src|href)=["']([^"']+\.js)["']/g)].map(m=>new URL(m[1],base).href),seen=new Set();let text='';
+              while(todo.length&&seen.size<35){
+                const url=todo.shift();if(seen.has(url)||new URL(url).origin!==new URL(base).origin)continue;
+                seen.add(url);const response=await get(url);if(!response.ok)continue;
+                const js=await response.text();text+=js;
+                for(const m of js.matchAll(/["']([^"'\s]+\.js)["']/g))if(m[1].startsWith('./')||m[1].startsWith('/assets/')||/^[\w.-]+\.js$/.test(m[1]))todo.push(new URL(m[1],url).href);
+              }
+              report.scriptsRead=seen.size;
+              report.progressPanel=text.includes('Envios de gravações');
+              report.navigationHelp=text.includes('continua ao navegar pela plataforma.');
+              report.resumeMessage=text.includes('Envio pausado. Clique em Retomar envio para continuar.');
+              report.published=report.progressPanel&&report.navigationHelp&&report.resumeMessage;
+              if(report.published)break;
+            }catch(e){report.error=String(e.message);}
+            await new Promise(r=>setTimeout(r,5000));
+          }
+          fs.writeFileSync('evidence/publication.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
+          if(!report.published)process.exitCode=1;
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: upload-continuity-publication
+          path: evidence/publication.json
+          retention-days: 7
