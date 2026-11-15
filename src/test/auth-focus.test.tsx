@@ -98,4 +98,24 @@ describe("Sessão ao alternar abas", () => {
     expect(screen.getByLabelText("Arquivo selecionado")).not.toBe(input);
     expect(mocks.owner).toHaveBeenLastCalledWith("admin-b");
   });
+  it("foco durante recuperação inicial não prende o carregamento", async () => {
+    let resolve!: (value: null) => void;
+    mocks.settings.mockResolvedValueOnce(null).mockReturnValueOnce(
+      new Promise((r) => {
+        resolve = r;
+      }),
+    );
+    render(
+      <AuthProvider>
+        <Form />
+      </AuthProvider>,
+    );
+    await waitFor(() => expect(mocks.settings).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      callback("SIGNED_IN", session);
+      resolve(null);
+    });
+    await screen.findByLabelText("Arquivo selecionado");
+    expect(mocks.activate).toHaveBeenCalledOnce();
+  });
 });

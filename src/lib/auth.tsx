@@ -146,15 +146,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setRecordingUploadOwner(sessionUserId.current);
         signedIn.current = !!data.session;
         setSession(data.session);
-        await refreshSettings();
-        if (
-          !alive ||
-          authEvents !== initialEvents ||
-          sessionUserId.current !== (data.session?.user.id ?? null)
-        )
-          return;
-        await loadUser(data.session);
-        if (data.session) supabase.rpc("touch_last_seen");
+        await Promise.all([refreshSettings(), loadUser(data.session)]);
+        if (alive && data.session && sessionUserId.current === data.session.user.id)
+          supabase.rpc("touch_last_seen");
       })
       .catch(() => {
         if (!alive || authEvents !== initialEvents) return;
