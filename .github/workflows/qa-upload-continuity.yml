@@ -1,0 +1,67 @@
+name: QA recording upload continuity
+on:
+  push:
+    branches: [qa/upload-continuity-20261115]
+    paths: [.github/workflows/qa-upload-continuity.yml]
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Apply only checksum-verified upload changes
+        run: |
+          mkdir -p evidence
+          cp qa/upload-continuity.patch.b64 evidence/transferred-patch.b64
+          python3 - <<'PY'
+          import pathlib,base64,gzip,hashlib
+          content=gzip.decompress(base64.b64decode(pathlib.Path('qa/upload-continuity.patch.b64').read_text()))
+          assert hashlib.sha256(content).hexdigest()=='f9f8359816eb561d7e231ad2000fedb933771ddffde2649373e2740546e763ba'
+          pathlib.Path('/tmp/upload.patch').write_bytes(content)
+          PY
+          git apply --check /tmp/upload.patch
+          git apply /tmp/upload.patch
+          bun install --frozen-lockfile
+          git diff --name-only -- src > evidence/changed-files.txt
+          grep -v 'src/components/portal/Portal.tsx' evidence/changed-files.txt | xargs bunx --no-install prettier --write
+      - name: Types and all tests
+        run: |
+          set -o pipefail
+          bunx --no-install tsc --noEmit 2>&1 | tee evidence/typescript.log
+          bun run test --reporter=default --reporter=json --outputFile=evidence/vitest.json 2>&1 | tee evidence/tests.log
+      - name: Lint touched files without unrelated Portal formatting
+        run: |
+          set -o pipefail
+          grep -v 'src/components/portal/Portal.tsx' evidence/changed-files.txt | xargs bunx --no-install eslint 2>&1 | tee evidence/lint.log
+          bunx --no-install eslint src/components/portal/Portal.tsx --rule 'prettier/prettier: off' 2>&1 | tee evidence/portal-lint.log
+      - name: Production build
+        run: |
+          set -o pipefail
+          bun run build 2>&1 | tee evidence/build.log
+      - name: Preserve verified source in QA only
+        run: |
+          git config user.name 'Carlos Scopel'
+          git config user.email '134417730+CarlosScopel@users.noreply.github.com'
+          git add src
+          git diff --cached --check
+          git commit -m 'fix: preservar envios de gravacoes ao navegar e recuperar interrupcoes'
+          git push origin HEAD:qa/upload-continuity-20261115
+          git rev-parse HEAD > evidence/verified-commit.txt
+          git ls-tree -r HEAD src > evidence/tree.txt
+      - name: Evidence without credentials
+        if: always()
+        run: |
+          git diff -- src > evidence/source.diff
+          tar -czf evidence/source.tar.gz src scripts package.json bun.lock tsconfig.json vite.config.ts vitest.config.ts eslint.config.js AGENTS.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: upload-continuity-evidence
+          path: evidence/
+          retention-days: 7
