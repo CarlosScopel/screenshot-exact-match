@@ -59,11 +59,11 @@ describe("Gravações: arquivos e contratos autenticados", () => {
     );
   });
   it("recusa arquivos vazios, extensões não suportadas e acima do limite", async () => {
-    await expect(validateRecordingFile(new File([], "a.mp4"))).rejects.toThrow("2 GB");
+    await expect(validateRecordingFile(new File([], "a.mp4"))).rejects.toThrow("5 GB");
     await expect(validateRecordingFile(video("a.html"))).rejects.toThrow("válido");
     const file = video();
     Object.defineProperty(file, "size", { value: RECORDING_MAX_BYTES + 1 });
-    await expect(validateRecordingFile(file)).rejects.toThrow("2 GB");
+    await expect(validateRecordingFile(file)).rejects.toThrow("5 GB");
   });
   it("pede ao servidor só as gravações do mentorado solicitado", async () => {
     mock.rpc.mockResolvedValue({ data: [record], error: null });

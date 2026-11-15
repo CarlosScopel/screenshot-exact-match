@@ -680,7 +680,7 @@ function RecordingUpload({
         />
       </label>
       <p className="text-xs text-muted-foreground sm:col-span-2">
-        MP4 H.264/AAC ou WebM, até 2 GB, sujeito ao limite do armazenamento. O envio usa blocos e
+        MP4 H.264/AAC ou WebM, até 5 GB, sujeito ao limite do armazenamento. O envio usa blocos e
         pode ser retomado nesta aba com o mesmo arquivo. Mantenha a página aberta até concluir.
       </p>
       {draft && (

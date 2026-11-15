@@ -58,7 +58,8 @@ describe("Limite de gravação de 5 GB", () => {
       `ordem:call-upload:${path}`,
       JSON.stringify({ url: endpoint + "/id", name: file.name, size: file.size, modified: 100 }),
     );
-    const fetchMock = vi.fn()
+    const fetchMock = vi
+      .fn()
       .mockResolvedValueOnce(reply(200, { "Upload-Offset": String(offset) }))
       .mockResolvedValueOnce(reply(204, { "Upload-Offset": String(file.size - 9) }))
       .mockResolvedValueOnce(reply(204, { "Upload-Offset": String(file.size) }));

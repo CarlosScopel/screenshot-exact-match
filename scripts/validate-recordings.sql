@@ -24,6 +24,8 @@ CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT nullif(
 \ir ../drizzle/migrations/0001_migration.sql
 \ir setup-mentorship-billing.sql
 \ir setup-mentorship-recordings.sql
+\ir upgrade-recording-limit-5gb.sql
+\ir upgrade-recording-limit-5gb.sql
 CREATE FUNCTION public.qa_assert(label text,condition boolean) RETURNS text LANGUAGE plpgsql AS $$ BEGIN IF condition IS DISTINCT FROM true THEN RAISE EXCEPTION 'FAIL: %',label; END IF; RETURN 'PASS: '||label; END $$;
 CREATE FUNCTION public.qa_reject(label text,command text,expected text) RETURNS text LANGUAGE plpgsql AS $$ BEGIN BEGIN EXECUTE command; EXCEPTION WHEN OTHERS THEN IF SQLERRM ~* expected THEN RETURN 'PASS: '||label; END IF; RAISE EXCEPTION 'Wrong error for %: %',label,SQLERRM; END; RAISE EXCEPTION 'FAIL: allowed: %',label; END $$;
 BEGIN;
@@ -34,10 +36,16 @@ INSERT INTO auth.users(id,email) VALUES
 INSERT INTO public.user_roles(user_id,role) VALUES('00000000-0000-4000-8000-000000000001','admin');
 SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',true);
 SET LOCAL ROLE authenticated;
+SAVEPOINT recording_size_limits;
+SELECT qa_assert('exact 5 GB accepted by real recording RPC',(public.recordings_create('00000000-0000-4000-8000-000000000002','Large call','',current_date,'large.mp4',5368709120,'video/mp4')->>'size_bytes')::bigint=5368709120);
+SELECT qa_assert('old 2 GB limit no longer blocks',(public.recordings_create('00000000-0000-4000-8000-000000000002','Above old limit','',current_date,'large.webm',2147483649,'video/webm')->>'size_bytes')::bigint=2147483649);
+SELECT qa_reject('5 GB plus one byte rejected',$q$SELECT public.recordings_create('00000000-0000-4000-8000-000000000002','Too large','',current_date,'large.mp4',5368709121,'video/mp4')$q$,'size_bytes_check');
+SELECT qa_reject('empty recordings remain rejected',$q$SELECT public.recordings_create('00000000-0000-4000-8000-000000000002','Empty','',current_date,'empty.mp4',0,'video/mp4')$q$,'size_bytes_check');
+ROLLBACK TO SAVEPOINT recording_size_limits;
 SELECT public.recordings_create('00000000-0000-4000-8000-000000000002','Call Alice','Conteúdo privado',current_date,'call.mp4',1024,'video/mp4')->>'id' AS alice \gset
 SELECT public.recordings_create('00000000-0000-4000-8000-000000000003','Call Bob','',current_date,'call.webm',2048,'video/webm')->>'id' AS bob \gset
 SELECT qa_assert('admin can see pending uploads',jsonb_array_length(public.recordings_list('00000000-0000-4000-8000-000000000002'))=1);
-SELECT qa_assert('recordings bucket is private',(SELECT NOT public AND file_size_limit=2147483648 FROM storage.buckets WHERE id='mentorship-recordings'));
+SELECT qa_assert('recordings bucket is private',(SELECT NOT public AND file_size_limit=5368709120 FROM storage.buckets WHERE id='mentorship-recordings'));
 SELECT qa_reject('cannot publish before upload',format('SELECT public.recordings_publish(%L)',:'alice'),'Envio incompleto');
 INSERT INTO storage.objects(bucket_id,name,metadata) SELECT 'mentorship-recordings',file_path,jsonb_build_object('size',size_bytes,'mimetype',mime_type) FROM public.mentorship_recordings;
 SELECT public.recordings_publish(:'alice');
