@@ -9,7 +9,7 @@ CREATE TABLE public.mentorship_recordings (
  file_path text NOT NULL UNIQUE,
  file_name text NOT NULL CHECK(char_length(file_name) BETWEEN 1 AND 180),
  mime_type text NOT NULL CHECK(mime_type IN ('video/mp4','video/webm')),
- size_bytes bigint NOT NULL CHECK(size_bytes BETWEEN 1 AND 2147483648),
+ size_bytes bigint NOT NULL CHECK(size_bytes BETWEEN 1 AND 5368709120),
  status text NOT NULL DEFAULT 'uploading' CHECK(status IN ('uploading','published')),
  created_at timestamptz NOT NULL DEFAULT now(),
  CHECK(file_path=user_id::text||'/'||id::text||CASE mime_type WHEN 'video/mp4' THEN '/recording.mp4' ELSE '/recording.webm' END)
@@ -41,7 +41,7 @@ $$;
 CREATE POLICY recordings_select ON public.mentorship_recordings FOR SELECT TO authenticated USING(public.recordings_can_read(id));
 CREATE POLICY recording_learning_self ON public.mentorship_recording_learning FOR SELECT TO authenticated USING(user_id=auth.uid() AND public.recordings_can_read(recording_id));
 INSERT INTO storage.buckets(id,name,public,file_size_limit,allowed_mime_types) VALUES
- ('mentorship-recordings','mentorship-recordings',false,2147483648,ARRAY['video/mp4','video/webm']);
+ ('mentorship-recordings','mentorship-recordings',false,5368709120,ARRAY['video/mp4','video/webm']);
 CREATE POLICY recordings_storage_read ON storage.objects FOR SELECT TO authenticated USING(bucket_id='mentorship-recordings' AND public.recordings_can_read_path(name));
 CREATE POLICY recordings_storage_insert ON storage.objects FOR INSERT TO authenticated WITH CHECK(bucket_id='mentorship-recordings' AND public.recordings_can_upload(name));
 

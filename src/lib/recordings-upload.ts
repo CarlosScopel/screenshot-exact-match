@@ -82,7 +82,7 @@ export function safeUploadLocation(value: string, endpoint: string, serverRespon
 function errorFor(status: number) {
   if (status === 413)
     return new Error(
-      "O armazenamento recusou o tamanho do vídeo. O limite global do provedor pode ser menor que 2 GB; reduza o arquivo ou ajuste esse limite no backend.",
+      "O armazenamento recusou o tamanho do vídeo. Verifique se o limite global do Lovable está em 5 GB em Mais > Armazenamento > Limite de upload.",
     );
   if (status === 401 || status === 403)
     return new Error(

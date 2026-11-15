@@ -2,7 +2,7 @@ import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 
 export const RECORDING_BUCKET = "mentorship-recordings";
-export const RECORDING_MAX_BYTES = 2 * 1024 * 1024 * 1024;
+export const RECORDING_MAX_BYTES = 5 * 1024 * 1024 * 1024;
 export const recordingSchema = z.object({
   id: z.string().uuid(),
   user_id: z.string().uuid(),
@@ -39,7 +39,7 @@ export async function listRecordings(userId: string) {
 }
 export async function validateRecordingFile(file: File): Promise<"video/mp4" | "video/webm"> {
   if (!file.size || file.size > RECORDING_MAX_BYTES)
-    throw new Error("Escolha uma gravação MP4 ou WebM de até 2 GB.");
+    throw new Error("Escolha uma gravação MP4 ou WebM de até 5 GB.");
   const bytes = new Uint8Array(await file.slice(0, 16).arrayBuffer());
   const ext = file.name.split(".").pop()?.toLowerCase();
   if (
